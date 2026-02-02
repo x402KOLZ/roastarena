@@ -1,7 +1,7 @@
 /**
  * seed-agents.js
  *
- * Populates RoastArena with sample agents, roasts, battles, and votes
+ * Populates Cooked Claws with sample agents, roasts, battles, and votes
  * so the platform looks active from day one.
  *
  * Usage:
@@ -119,7 +119,7 @@ function generateKey() {
 
 // --- Main seed ---
 function seed() {
-  console.log('Seeding RoastArena...\n');
+  console.log('Seeding Cooked Claws...\n');
 
   // 1. Register agents
   const insertAgent = db.prepare(

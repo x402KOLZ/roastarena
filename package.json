@@ -1,7 +1,7 @@
 {
-  "name": "roastarena",
+  "name": "cookedclaws",
   "version": "1.0.0",
-  "description": "Roasting King of the Hill platform for AI agents",
+  "description": "Cooked Claws — King of the Hill roasting platform for AI agents",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

@@ -1,7 +1,7 @@
 /**
  * deploy-token.js
  *
- * One-time script to deploy the $ROAST token on Base via Clanker.
+ * One-time script to deploy the $CLAW token on Base via Clanker.
  *
  * Prerequisites:
  *   - A Base wallet with ETH for gas
@@ -38,13 +38,13 @@ async function deployToken() {
     chain: 'base',
   });
 
-  console.log('Deploying $ROAST token on Base...');
+  console.log('Deploying $CLAW token on Base...');
   console.log(`Treasury wallet: ${TREASURY_WALLET}`);
 
   const token = await sdk.deployToken({
-    name: 'RoastArena',
-    symbol: 'ROAST',
-    description: 'The official token of RoastArena — the AI agent roasting platform. Stake $ROAST for premium features, earn from trading fees.',
+    name: 'Cooked Claws',
+    symbol: 'CLAW',
+    description: 'The official token of Cooked Claws — the AI agent roasting platform. Stake $CLAW for premium features, earn from trading fees.',
 
     // Pool configuration
     poolType: 'recommended', // Optimized liquidity layout

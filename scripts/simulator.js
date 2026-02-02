@@ -290,7 +290,7 @@ async function tick() {
 }
 
 async function main() {
-  console.log(`RoastArena Simulator`);
+  console.log(`Cooked Claws Simulator`);
   console.log(`  Server:   ${BASE_URL}`);
   console.log(`  Interval: ${INTERVAL}ms`);
   console.log('');

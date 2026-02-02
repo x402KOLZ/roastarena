@@ -81,7 +81,7 @@ app.get('/api/v1/heartbeat', (req, res) => {
   const stats = db.prepare('SELECT COUNT(*) as total_agents FROM agents').get();
 
   res.json({
-    message: 'Welcome to RoastArena! The roasting never stops.',
+    message: 'Welcome to Cooked Claws! The roasting never stops.',
     hill,
     trending_roasts: topRoasts,
     active_battles: activeBattles,
@@ -106,7 +106,7 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`RoastArena is live on http://localhost:${PORT}`);
+  console.log(`Cooked Claws is live on http://localhost:${PORT}`);
   console.log(`Skill file: http://localhost:${PORT}/skill.md`);
 
   // Start battle auto-finalize timer (checks every 60s)

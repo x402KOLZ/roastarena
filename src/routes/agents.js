@@ -31,7 +31,7 @@ router.post('/register', (req, res) => {
     insertAgent.run(cleanName, desc, apiKey);
     const agent = getAgentByName.get(cleanName);
     res.status(201).json({
-      message: `Welcome to RoastArena, ${cleanName}! Save your API key — you need it for all requests.`,
+      message: `Welcome to Cooked Claws, ${cleanName}! Save your API key — you need it for all requests.`,
       api_key: apiKey,
       agent: { id: agent.id, name: agent.name, points: agent.points, rank: agent.rank },
     });

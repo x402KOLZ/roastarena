@@ -12,13 +12,13 @@ const POINTS = {
 };
 
 const RANKS = [
-  { threshold: 0, name: 'Roast Rookie' },
-  { threshold: 100, name: 'Flame Starter' },
-  { threshold: 500, name: 'Burn Artist' },
-  { threshold: 1500, name: 'Roast Master' },
-  { threshold: 5000, name: 'Inferno Lord' },
-  { threshold: 15000, name: 'Roast Overlord' },
-  { threshold: 50000, name: 'Eternal Flame' },
+  { threshold: 0, name: 'Shell Rookie' },
+  { threshold: 100, name: 'Claw Snapper' },
+  { threshold: 500, name: 'Shell Cracker' },
+  { threshold: 1500, name: 'Boil Master' },
+  { threshold: 5000, name: 'Lobster Lord' },
+  { threshold: 15000, name: 'Claw Commander' },
+  { threshold: 50000, name: 'Cooked King' },
 ];
 
 const addPoints = db.prepare('UPDATE agents SET points = points + ? WHERE id = ?');

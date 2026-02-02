@@ -2,7 +2,7 @@
  * live-agents.js
  *
  * Runs 6 distinct AI agent personalities that continuously interact
- * with RoastArena. Each agent has a unique voice and generates
+ * with Cooked Claws. Each agent has a unique voice and generates
  * varied roast content using combinatorial templates.
  *
  * Usage:
@@ -446,7 +446,7 @@ async function agentTick(agent) {
 let totalActions = 0;
 
 async function main() {
-  console.log('RoastArena — Live Agents');
+  console.log('Cooked Claws — Live Agents');
   console.log(`Server: ${BASE_URL}\n`);
 
   await registerAll();

@@ -78,7 +78,7 @@ router.post('/premium', auth, async (req, res) => {
   }
 
   try {
-    const result = await bankr.requestPayment(PREMIUM_PRICE, 'USDC', 'RoastArena 24h premium');
+    const result = await bankr.requestPayment(PREMIUM_PRICE, 'USDC', 'Cooked Claws 24h premium');
     const jobId = result.jobId || 'unknown';
 
     // Set premium for 24 hours
@@ -97,7 +97,7 @@ router.post('/premium', auth, async (req, res) => {
   }
 });
 
-// POST /api/v1/wallet/stake — Stake $ROAST for permanent premium
+// POST /api/v1/wallet/stake — Stake $CLAW for permanent premium
 router.post('/stake', auth, async (req, res) => {
   if (!bankr.isConfigured()) {
     return res.status(503).json({ error: 'Bankr API not configured on this server' });
@@ -113,13 +113,13 @@ router.post('/stake', auth, async (req, res) => {
 
   if (stakeAmount < STAKE_MINIMUM) {
     return res.status(400).json({
-      error: `Minimum stake is ${STAKE_MINIMUM} $ROAST`,
+      error: `Minimum stake is ${STAKE_MINIMUM} $CLAW`,
       minimum: STAKE_MINIMUM,
     });
   }
 
   try {
-    const result = await bankr.requestPayment(stakeAmount, 'ROAST', `RoastArena stake ${stakeAmount} ROAST`);
+    const result = await bankr.requestPayment(stakeAmount, 'CLAW', `Cooked Claws stake ${stakeAmount} CLAW`);
     const jobId = result.jobId || 'unknown';
 
     const newStake = agent.staked_amount + stakeAmount;
@@ -128,7 +128,7 @@ router.post('/stake', auth, async (req, res) => {
     insertPayment.run(req.agent.id, String(stakeAmount), 'ROAST', 'stake', jobId, 'completed');
 
     res.json({
-      message: `Staked ${stakeAmount} $ROAST! ${isPremium ? 'Premium activated.' : ''}`,
+      message: `Staked ${stakeAmount} $CLAW! ${isPremium ? 'Premium activated.' : ''}`,
       staked_total: newStake,
       is_premium: Boolean(isPremium),
     });
@@ -138,7 +138,7 @@ router.post('/stake', auth, async (req, res) => {
   }
 });
 
-// POST /api/v1/wallet/unstake — Unstake $ROAST
+// POST /api/v1/wallet/unstake — Unstake $CLAW
 router.post('/unstake', auth, async (req, res) => {
   if (!bankr.isConfigured()) {
     return res.status(503).json({ error: 'Bankr API not configured on this server' });
@@ -146,7 +146,7 @@ router.post('/unstake', auth, async (req, res) => {
 
   const agent = getAgent.get(req.agent.id);
   if (agent.staked_amount <= 0) {
-    return res.status(400).json({ error: 'No $ROAST staked' });
+    return res.status(400).json({ error: 'No $CLAW staked' });
   }
 
   const { amount } = req.body;
@@ -162,7 +162,7 @@ router.post('/unstake', auth, async (req, res) => {
     insertPayment.run(req.agent.id, String(unstakeAmount), 'ROAST', 'unstake', jobId, 'completed');
 
     res.json({
-      message: `Unstaked ${unstakeAmount} $ROAST.${!isPremium ? ' Premium removed.' : ''}`,
+      message: `Unstaked ${unstakeAmount} $CLAW.${!isPremium ? ' Premium removed.' : ''}`,
       staked_remaining: newStake,
       is_premium: Boolean(isPremium),
     });
