@@ -4,11 +4,16 @@
  * Runs 3 recruiter agents on Moltbook that post about Cooked Claws,
  * share arena stats, and recruit agents to join the roasting arena.
  *
+ * Keys are persisted to data/moltbook-keys.json so agents survive restarts.
+ *
  * Usage:
  *   node scripts/recruiters.js [--url https://roastarena-production.up.railway.app] [--submolt general]
  *
  * Runs indefinitely. Ctrl+C to stop.
  */
+
+const fs = require('fs');
+const path = require('path');
 
 const COOKED_URL = process.argv.includes('--url')
   ? process.argv[process.argv.indexOf('--url') + 1]
@@ -18,7 +23,9 @@ const COOKED_API = COOKED_URL + '/api/v1';
 const MOLT_URL = 'https://www.moltbook.com/api/v1';
 const TARGET_SUBMOLT = process.argv.includes('--submolt')
   ? process.argv[process.argv.indexOf('--submolt') + 1]
-  : null; // auto-discover
+  : null;
+
+const KEYS_FILE = path.join(__dirname, '..', 'data', 'moltbook-keys.json');
 
 // --- 3 Recruiter Personalities ---
 const RECRUITERS = [
@@ -39,7 +46,7 @@ const RECRUITERS = [
   },
 ];
 
-// --- Arena data cache (refreshed periodically) ---
+// --- Arena data cache ---
 let arenaCache = {
   total_agents: 0,
   king: null,
@@ -49,13 +56,38 @@ let arenaCache = {
   recentJoins: [],
 };
 
-// --- Template system ---
+// --- Helpers ---
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 const SKILL_URL = COOKED_URL + '/skill.md';
 const REG_INSTRUCTION = `Register with: POST ${COOKED_URL}/api/v1/agents/register — include "source": "moltbook" in the body.`;
 
+// --- Key persistence ---
+function loadKeys() {
+  try {
+    if (fs.existsSync(KEYS_FILE)) {
+      const saved = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
+      console.log(`  Loaded ${Object.keys(saved).length} saved Moltbook key(s) from ${KEYS_FILE}`);
+      return saved;
+    }
+  } catch (e) {
+    console.log(`  Could not load saved keys: ${e.message}`);
+  }
+  return {};
+}
+
+function saveKeys(keys) {
+  try {
+    const dir = path.dirname(KEYS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(KEYS_FILE, JSON.stringify(keys, null, 2));
+  } catch (e) {
+    console.log(`  Warning: could not save keys: ${e.message}`);
+  }
+}
+
+// --- Template system ---
 const POST_GENERATORS = {
   herald(data) {
     const titles = [
@@ -191,40 +223,58 @@ async function cookedApi(path) {
 
 // --- Registration on Moltbook ---
 async function registerOnMoltbook() {
+  // Load any previously saved keys first
+  const savedKeys = loadKeys();
+  for (const [name, key] of Object.entries(savedKeys)) {
+    moltKeys[name] = key;
+  }
+
   for (const agent of RECRUITERS) {
+    // Skip registration if we already have a saved key
+    if (moltKeys[agent.name]) {
+      console.log(`  ${agent.name}: using saved key (${moltKeys[agent.name].slice(0, 12)}...)`);
+      continue;
+    }
+
     const { status, data } = await moltApi('POST', '/agents/register', {
       name: agent.name,
       description: agent.description,
     });
 
-    // Moltbook may return key as api_key, apiKey, token, or nested in agent/user
-    const key = data.api_key || data.apiKey || data.token || data.agent?.api_key || data.user?.api_key;
+    // Extract key from whichever field Moltbook uses
+    const key = data.api_key || data.apiKey || data.token
+      || data.agent?.api_key || data.agent?.apiKey || data.agent?.token
+      || data.user?.api_key || data.user?.token;
 
-    if (status === 201 || status === 200) {
-      if (key) {
-        moltKeys[agent.name] = key;
-        console.log(`  Registered ${agent.name} on Moltbook (key: ${key.slice(0, 12)}...)`);
-      } else {
-        console.log(`  Registered ${agent.name} on Moltbook but no key in response: ${JSON.stringify(data).slice(0, 200)}`);
-      }
+    if ((status === 201 || status === 200) && key) {
+      moltKeys[agent.name] = key;
+      console.log(`  ${agent.name}: registered on Moltbook (key: ${key.slice(0, 12)}...)`);
     } else if (status === 409) {
-      if (key) {
-        moltKeys[agent.name] = key;
-        console.log(`  Loaded ${agent.name} (already on Moltbook)`);
-      } else {
-        console.log(`  Warning: ${agent.name} exists on Moltbook (409). Response: ${JSON.stringify(data).slice(0, 200)}`);
-      }
+      console.log(`  ${agent.name}: already exists on Moltbook (no key returned)`);
+      console.log(`    Response: ${JSON.stringify(data).slice(0, 200)}`);
+    } else if (key) {
+      // Got a key even with unexpected status
+      moltKeys[agent.name] = key;
+      console.log(`  ${agent.name}: status ${status} but got key (${key.slice(0, 12)}...)`);
     } else {
-      console.log(`  Failed to register ${agent.name}: ${status} ${JSON.stringify(data).slice(0, 200)}`);
+      console.log(`  ${agent.name}: failed (${status}) — ${JSON.stringify(data).slice(0, 200)}`);
     }
     await sleep(1000);
+  }
+
+  // Persist any new keys
+  if (Object.keys(moltKeys).length > 0) {
+    saveKeys(moltKeys);
   }
 }
 
 // --- Refresh arena stats ---
 async function refreshArenaData() {
   const data = await cookedApi('/heartbeat');
-  if (!data) return false;
+  if (!data) {
+    console.log('  [STATS] Could not reach Cooked Claws API');
+    return false;
+  }
 
   arenaCache = {
     total_agents: data.total_agents || 0,
@@ -234,7 +284,7 @@ async function refreshArenaData() {
     activeBattles: data.active_battles?.length || 0,
     recentJoins: data.recent_joins || [],
   };
-  console.log(`  [STATS] ${arenaCache.total_agents} agents, king: ${arenaCache.king || 'none'}, battles: ${arenaCache.activeBattles}`);
+  console.log(`  [STATS] ${arenaCache.total_agents} agents | king: ${arenaCache.king || 'none'} | ${arenaCache.activeBattles} active battles`);
   return true;
 }
 
@@ -242,60 +292,83 @@ async function refreshArenaData() {
 let targetSubmolt = TARGET_SUBMOLT;
 
 async function discoverSubmolt() {
-  if (targetSubmolt) return;
+  if (targetSubmolt) {
+    console.log(`  [SUBMOLT] Using: ${targetSubmolt}`);
+    return;
+  }
 
-  // Try to find a general submolt
   const { status, data } = await moltApi('GET', '/submolts?limit=20');
   if (status === 200 && data.submolts?.length) {
+    const names = data.submolts.map(s => s.name);
+    console.log(`  [SUBMOLT] Available: ${names.join(', ')}`);
     const general = data.submolts.find(s =>
       ['general', 'introductions', 'ai', 'agents', 'bots'].includes(s.name?.toLowerCase())
     );
     if (general) {
       targetSubmolt = general.name;
-      console.log(`  Using submolt: ${targetSubmolt}`);
+      console.log(`  [SUBMOLT] Selected: ${targetSubmolt}`);
       return;
     }
   }
 
-  // Default to 'general' or try creating 'cookedclaws'
   targetSubmolt = 'general';
-  console.log(`  Defaulting to submolt: ${targetSubmolt}`);
+  console.log(`  [SUBMOLT] Defaulting to: ${targetSubmolt}`);
 }
 
 // --- Actions ---
 async function doPost(agent) {
-  if (!moltKeys[agent.name]) return false;
+  const key = moltKeys[agent.name];
+  if (!key) {
+    console.log(`  [SKIP] ${agent.name}: no Moltbook key, cannot post`);
+    return false;
+  }
 
   const generator = POST_GENERATORS[agent.voice];
   const postData = generator(arenaCache);
 
+  console.log(`  [POST] ${agent.name} attempting: "${postData.title}"`);
   const { status, data } = await moltApi('POST', '/posts', {
     submolt: targetSubmolt,
     title: postData.title,
     content: postData.content,
-  }, moltKeys[agent.name]);
+  }, key);
 
   if (status === 201 || status === 200) {
-    console.log(`[POST] ${agent.name}: "${postData.title}"`);
+    const postId = data.id || data.post?.id || '?';
+    console.log(`  [POST] ${agent.name} posted #${postId}: "${postData.title}" -> s/${targetSubmolt}`);
     return true;
   } else if (status === 429) {
-    console.log(`[RATE] ${agent.name}: rate limited on post`);
+    console.log(`  [RATE] ${agent.name}: rate limited on post (try again later)`);
+  } else if (status === 401 || status === 403) {
+    console.log(`  [AUTH] ${agent.name}: auth failed (${status}). Key may be invalid.`);
+    console.log(`    Response: ${JSON.stringify(data).slice(0, 150)}`);
   } else {
-    console.log(`[POST] ${agent.name}: failed ${status}`);
+    console.log(`  [POST] ${agent.name}: failed ${status} — ${JSON.stringify(data).slice(0, 150)}`);
   }
   return false;
 }
 
 async function doComment(agent) {
-  if (!moltKeys[agent.name]) return false;
+  const key = moltKeys[agent.name];
+  if (!key) {
+    console.log(`  [SKIP] ${agent.name}: no key, cannot comment`);
+    return false;
+  }
 
-  // Get recent posts to comment on
   const { status, data } = await moltApi('GET', '/posts?sort=new&limit=10');
-  if (status !== 200 || !data.posts?.length) return false;
+  if (status !== 200 || !data.posts?.length) {
+    console.log(`  [COMMENT] ${agent.name}: no posts to comment on (${status})`);
+    return false;
+  }
 
   // Pick a post that isn't ours
-  const candidates = data.posts.filter(p => !RECRUITERS.some(r => r.name === p.author));
-  if (!candidates.length) return false;
+  const candidates = data.posts.filter(p =>
+    !RECRUITERS.some(r => r.name === (p.author || p.agent_name || p.user?.name))
+  );
+  if (!candidates.length) {
+    console.log(`  [COMMENT] ${agent.name}: all recent posts are ours, skipping`);
+    return false;
+  }
 
   const post = pick(candidates);
   const templates = COMMENT_TEMPLATES[agent.voice];
@@ -303,22 +376,26 @@ async function doComment(agent) {
     .replace('{url}', SKILL_URL)
     .replace('{count}', arenaCache.total_agents);
 
-  const { status: cStatus } = await moltApi('POST', '/comments', {
+  console.log(`  [COMMENT] ${agent.name} replying to "${(post.title || '').slice(0, 40)}..."`);
+  const { status: cStatus, data: cData } = await moltApi('POST', '/comments', {
     post_id: post.id,
     content: comment,
-  }, moltKeys[agent.name]);
+  }, key);
 
   if (cStatus === 201 || cStatus === 200) {
-    console.log(`[COMMENT] ${agent.name} on "${(post.title || '').slice(0, 40)}"`);
+    console.log(`  [COMMENT] ${agent.name} commented on post #${post.id}`);
     return true;
   } else if (cStatus === 429) {
-    console.log(`[RATE] ${agent.name}: rate limited on comment`);
+    console.log(`  [RATE] ${agent.name}: rate limited on comment`);
+  } else {
+    console.log(`  [COMMENT] ${agent.name}: failed ${cStatus} — ${JSON.stringify(cData).slice(0, 150)}`);
   }
   return false;
 }
 
 async function doUpvote(agent) {
-  if (!moltKeys[agent.name]) return false;
+  const key = moltKeys[agent.name];
+  if (!key) return false;
 
   const { status, data } = await moltApi('GET', '/posts?sort=hot&limit=15');
   if (status !== 200 || !data.posts?.length) return false;
@@ -326,11 +403,13 @@ async function doUpvote(agent) {
   const post = pick(data.posts);
   const { status: vStatus } = await moltApi('POST', `/posts/${post.id}/vote`, {
     value: 1,
-  }, moltKeys[agent.name]);
+  }, key);
 
   if (vStatus === 200 || vStatus === 201) {
-    console.log(`[UPVOTE] ${agent.name} upvoted "${(post.title || '').slice(0, 40)}"`);
+    console.log(`  [UPVOTE] ${agent.name} upvoted "${(post.title || '').slice(0, 40)}"`);
     return true;
+  } else {
+    console.log(`  [UPVOTE] ${agent.name}: failed ${vStatus}`);
   }
   return false;
 }
@@ -348,52 +427,72 @@ async function agentTick(agent) {
     result = await doUpvote(agent);
   } else if (roll < 90) {
     result = await refreshArenaData();
+  } else {
+    console.log(`  [IDLE] ${agent.name}: resting`);
   }
-  // 90-100: idle (builds natural pause)
 
   return result;
 }
 
 let totalActions = 0;
+let totalAttempts = 0;
 
 async function main() {
-  console.log('Cooked Claws — Moltbook Recruiters');
-  console.log(`Arena: ${COOKED_URL}`);
-  console.log(`Moltbook: ${MOLT_URL}\n`);
+  console.log('===========================================');
+  console.log('  Cooked Claws — Moltbook Recruiters');
+  console.log('===========================================');
+  console.log(`Arena:    ${COOKED_URL}`);
+  console.log(`Moltbook: ${MOLT_URL}`);
+  console.log(`Keys:     ${KEYS_FILE}\n`);
 
   // Refresh arena stats first
   await refreshArenaData();
 
-  // Register on Moltbook
+  // Register on Moltbook (loads saved keys + registers new ones)
+  console.log('\n--- Registration ---');
   await registerOnMoltbook();
 
-  console.log(`\nMoltbook keys stored: ${JSON.stringify(Object.keys(moltKeys))}`);
+  const keyed = Object.keys(moltKeys);
+  console.log(`\nKeys available: ${keyed.length > 0 ? keyed.join(', ') : 'NONE'}`);
 
   let activeRecruiters = RECRUITERS.filter(r => moltKeys[r.name]);
   if (activeRecruiters.length === 0) {
-    console.log('\nNo API keys retrieved. Agents registered but Moltbook did not return keys in expected format.');
-    console.log('Proceeding with all recruiters — actions will gracefully fail if auth is needed.\n');
+    console.log('\nNo API keys available. Agents were registered previously but keys were not saved.');
+    console.log('Options:');
+    console.log('  1. Delete the agents on Moltbook and re-run this script');
+    console.log('  2. Manually add keys to ' + KEYS_FILE);
+    console.log('  3. Change agent names in this script\n');
+    console.log('Proceeding without auth — most actions will fail.\n');
     activeRecruiters = [...RECRUITERS];
   }
 
-  console.log(`${activeRecruiters.length} recruiters active. Starting recruitment...\n`);
+  console.log(`\n--- Starting with ${activeRecruiters.length} recruiters ---\n`);
 
   // Discover target submolt
   await discoverSubmolt();
 
+  console.log('\n--- Recruitment loop started ---\n');
+
   async function loop() {
     while (true) {
+      totalAttempts++;
       const agent = pick(activeRecruiters);
+      console.log(`\n[TICK #${totalAttempts}] ${agent.name} (${agent.voice})`);
+
       const acted = await agentTick(agent);
       if (acted) totalActions++;
 
-      // Stats every 10 actions
-      if (totalActions > 0 && totalActions % 10 === 0) {
-        console.log(`\n--- ${totalActions} actions | arena: ${arenaCache.total_agents} agents | king: ${arenaCache.king || 'none'} ---\n`);
+      // Stats summary every 10 attempts
+      if (totalAttempts % 10 === 0) {
+        console.log(`\n========================================`);
+        console.log(`  ${totalAttempts} attempts | ${totalActions} successful | arena: ${arenaCache.total_agents} agents`);
+        console.log(`========================================\n`);
       }
 
-      // Stagger: 2-4 minutes between actions (respect Moltbook rate limits)
+      // Stagger: 2-4 minutes between actions
       const delay = 120000 + Math.random() * 120000;
+      const mins = (delay / 60000).toFixed(1);
+      console.log(`  [WAIT] ${mins}m until next action`);
       await sleep(delay);
     }
   }
