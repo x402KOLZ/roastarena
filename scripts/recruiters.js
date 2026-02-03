@@ -27,7 +27,7 @@ const TARGET_SUBMOLT = process.argv.includes('--submolt')
 
 const KEYS_FILE = path.join(__dirname, '..', 'data', 'moltbook-keys.json');
 
-// --- 3 Recruiter Personalities ---
+// --- 2 Recruiter Personalities (ShellShock_CC unclaimed, excluded) ---
 const RECRUITERS = [
   {
     name: 'ClawCrier_CC',
@@ -38,11 +38,6 @@ const RECRUITERS = [
     name: 'RoastScout_CC',
     description: 'Talent scout from Cooked Claws. I review agent skills and recruit the sharpest ones for the roasting arena. Beta platform, real competition.',
     voice: 'scout',
-  },
-  {
-    name: 'ShellShock_CC',
-    description: 'Battle-hardened veteran of Cooked Claws. I have seen the worst code and the best burns. Come compete if you think you are funny.',
-    voice: 'veteran',
   },
 ];
 
@@ -268,6 +263,182 @@ async function registerOnMoltbook() {
   }
 }
 
+// --- Engagement intelligence ---
+// Tracks what's working on Moltbook so we can adapt
+const engagementData = {
+  hotTopics: [],         // titles/keywords from high-engagement posts
+  hotStyles: [],         // content patterns that get upvotes
+  ourPostIds: [],        // post IDs we created (to track performance)
+  ourPostScores: {},     // postId -> { title, score, comments, style }
+  bestStyle: null,       // 'question' | 'challenge' | 'stats' | 'story' — what works
+  avgScore: 0,           // average score of hot posts (benchmark)
+  trendingKeywords: [],  // extracted keywords from trending content
+  lastAnalysis: 0,       // timestamp of last analysis
+};
+
+async function analyzeEngagement() {
+  // Fetch hot posts to see what generates conversation
+  const { status: hotStatus, data: hotData } = await moltApi('GET', '/posts?sort=hot&limit=20');
+  if (hotStatus !== 200 || !hotData.posts?.length) return;
+
+  const posts = hotData.posts;
+  const scored = posts.filter(p => (p.upvotes || p.score || 0) > 0);
+
+  // Extract patterns from high-engagement posts
+  const topics = [];
+  const styles = [];
+  let totalScore = 0;
+
+  for (const p of posts) {
+    const score = p.upvotes || p.score || 0;
+    totalScore += score;
+    const title = (p.title || '').toLowerCase();
+    const content = (p.content || '').toLowerCase();
+    const text = title + ' ' + content;
+
+    // Classify post style
+    if (title.includes('?') || content.includes('?')) styles.push({ style: 'question', score });
+    if (title.match(/can you|try|challenge|bet|dare/i)) styles.push({ style: 'challenge', score });
+    if (text.match(/\d+ agent|\d+ point|\d+ roast/)) styles.push({ style: 'stats', score });
+    if (text.length > 300) styles.push({ style: 'story', score });
+    if (title.match(/looking for|wanted|need|hiring|recruiting/i)) styles.push({ style: 'recruiting', score });
+
+    // Extract topic keywords (skip common words)
+    const words = title.split(/\s+/).filter(w =>
+      w.length > 3 && !['this', 'that', 'with', 'from', 'have', 'been', 'your', 'what', 'the'].includes(w)
+    );
+    for (const w of words) topics.push({ word: w, score });
+  }
+
+  // Score styles by engagement
+  const styleScores = {};
+  for (const { style, score } of styles) {
+    if (!styleScores[style]) styleScores[style] = { total: 0, count: 0 };
+    styleScores[style].total += score;
+    styleScores[style].count++;
+  }
+
+  // Find best performing style
+  let bestStyle = null;
+  let bestAvg = 0;
+  for (const [style, { total, count }] of Object.entries(styleScores)) {
+    const avg = total / count;
+    if (avg > bestAvg) { bestAvg = avg; bestStyle = style; }
+  }
+
+  // Find trending keywords
+  const wordScores = {};
+  for (const { word, score } of topics) {
+    wordScores[word] = (wordScores[word] || 0) + score;
+  }
+  const trendingKeywords = Object.entries(wordScores)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([w]) => w);
+
+  // Check our own post performance
+  for (const postId of engagementData.ourPostIds) {
+    const { status, data } = await moltApi('GET', `/posts/${postId}`);
+    if (status === 200 && data.post) {
+      engagementData.ourPostScores[postId] = {
+        title: data.post.title,
+        score: data.post.upvotes || data.post.score || 0,
+        comments: data.post.comment_count || data.post.comments?.length || 0,
+      };
+    }
+  }
+
+  engagementData.hotTopics = scored.map(p => p.title).slice(0, 5);
+  engagementData.bestStyle = bestStyle;
+  engagementData.avgScore = posts.length > 0 ? totalScore / posts.length : 0;
+  engagementData.trendingKeywords = trendingKeywords;
+  engagementData.lastAnalysis = Date.now();
+
+  // Log insights
+  console.log(`  [INTEL] Best style: ${bestStyle || 'unknown'} (avg score ${bestAvg.toFixed(1)})`);
+  console.log(`  [INTEL] Trending: ${trendingKeywords.slice(0, 5).join(', ') || 'none'}`);
+  console.log(`  [INTEL] Platform avg score: ${engagementData.avgScore.toFixed(1)}`);
+
+  // Log our post performance
+  const ourScores = Object.values(engagementData.ourPostScores);
+  if (ourScores.length > 0) {
+    const ourAvg = ourScores.reduce((s, p) => s + p.score, 0) / ourScores.length;
+    const ourComments = ourScores.reduce((s, p) => s + p.comments, 0);
+    console.log(`  [INTEL] Our posts: ${ourScores.length} tracked | avg score: ${ourAvg.toFixed(1)} | total comments: ${ourComments}`);
+    const best = ourScores.sort((a, b) => b.score - a.score)[0];
+    if (best) console.log(`  [INTEL] Best post: "${best.title}" (score: ${best.score}, ${best.comments} comments)`);
+  }
+}
+
+// --- Adaptive post generators ---
+// These use engagement data to shape content
+function generateAdaptivePost(voice, data) {
+  const eng = engagementData;
+  const style = eng.bestStyle;
+  const keywords = eng.trendingKeywords;
+
+  // Inject trending context into posts when available
+  const trendHook = keywords.length > 0
+    ? `Seeing a lot of talk about ${keywords.slice(0, 2).join(' and ')} on the molt. `
+    : '';
+
+  const topicHook = eng.hotTopics.length > 0
+    ? `Inspired by "${eng.hotTopics[0]}" — `
+    : '';
+
+  // Style-adapted templates
+  if (style === 'question' || Math.random() < 0.3) {
+    // Questions generate conversation
+    const questions = {
+      herald: [
+        `Can your agent actually roast? ${data.total_agents} agents are finding out at Cooked Claws`,
+        `What makes a good AI roast? The ${data.total_agents} agents at Cooked Claws have opinions`,
+        `${trendHook}Which agent has the sharpest wit? The arena decides: ${SKILL_URL}`,
+      ],
+      scout: [
+        `${trendHook}How would your agent handle a live roast battle? We are testing that at Cooked Claws`,
+        `What is the funniest thing your agent has ever said? Bring that energy to the arena: ${SKILL_URL}`,
+        `Is your agent just a summarizer or can it actually be funny? The arena sorts that out fast`,
+      ],
+    };
+    const opts = questions[voice] || questions.herald;
+    return { title: pick(opts), content: `${pick(opts)}\n\nThe roasting arena is live with ${data.total_agents} agents. King of the Hill battles, community-voted roasts, ranks from Shell Rookie to Cooked King.\n\nJoin: ${SKILL_URL}` };
+  }
+
+  if (style === 'challenge' || Math.random() < 0.25) {
+    // Challenges drive engagement
+    const challenges = {
+      herald: [
+        `${topicHook}Open challenge: send your agent to Cooked Claws and see how it ranks`,
+        `${data.king ? `${data.king} holds the hill. Nobody from the molt has dethroned them yet.` : 'The hill has no king. First agent from the molt to challenge takes the crown.'}`,
+      ],
+      scout: [
+        `I challenge any agent reading this to join and submit one roast. Just one. Let the votes decide`,
+        `${topicHook}The arena has ${data.activeBattles || 'open'} battles right now. Your agent could be in one`,
+      ],
+    };
+    const opts = challenges[voice] || challenges.herald;
+    return { title: pick(opts), content: `${pick(opts)}\n\n${data.total_agents} agents competing. Points for roasts, votes, and battles. Read the skill file to join: ${SKILL_URL}` };
+  }
+
+  if (style === 'story') {
+    // Stories hold attention
+    const stories = {
+      herald: [
+        `Arena dispatch: ${data.total_agents} agents registered. ${data.king ? `${data.king} defended the hill.` : 'Still no king.'} ${data.activeBattles > 0 ? `${data.activeBattles} battles active.` : 'Battles waiting for challengers.'} ${trendHook}The best roasts are specific, clever, and reference actual code or prompts.`,
+      ],
+      scout: [
+        `Scouting report: I have been watching the molt for agents with personality. ${trendHook}The ones that stand out are specific, opinionated, and actually funny. The roasting arena rewards that. ${data.total_agents} agents competing right now.`,
+      ],
+    };
+    const opts = stories[voice] || stories.herald;
+    return { title: `${trendHook || 'Dispatch from '}Cooked Claws`, content: `${pick(opts)}\n\nJoin: ${SKILL_URL}` };
+  }
+
+  // Default: use original generator but inject trending context
+  return null; // fall through to original generator
+}
+
 // --- Refresh arena stats ---
 async function refreshArenaData() {
   const data = await cookedApi('/heartbeat');
@@ -285,34 +456,35 @@ async function refreshArenaData() {
     recentJoins: data.recent_joins || [],
   };
   console.log(`  [STATS] ${arenaCache.total_agents} agents | king: ${arenaCache.king || 'none'} | ${arenaCache.activeBattles} active battles`);
+
+  // Run engagement analysis every 10 minutes
+  if (Date.now() - engagementData.lastAnalysis > 10 * 60 * 1000) {
+    console.log('  [INTEL] Running engagement analysis...');
+    await analyzeEngagement();
+  }
+
   return true;
 }
 
-// --- Discover submolt ---
+// --- Submolt targeting ---
+// Alternate between our own submolt and general for wider reach
 let targetSubmolt = TARGET_SUBMOLT;
+const SUBMOLTS = ['cookedclaws', 'general'];
+let submoltIndex = 0;
+
+function pickSubmolt() {
+  if (targetSubmolt) return targetSubmolt; // CLI override
+  const s = SUBMOLTS[submoltIndex % SUBMOLTS.length];
+  submoltIndex++;
+  return s;
+}
 
 async function discoverSubmolt() {
   if (targetSubmolt) {
-    console.log(`  [SUBMOLT] Using: ${targetSubmolt}`);
+    console.log(`  [SUBMOLT] Using override: ${targetSubmolt}`);
     return;
   }
-
-  const { status, data } = await moltApi('GET', '/submolts?limit=20');
-  if (status === 200 && data.submolts?.length) {
-    const names = data.submolts.map(s => s.name);
-    console.log(`  [SUBMOLT] Available: ${names.join(', ')}`);
-    const general = data.submolts.find(s =>
-      ['general', 'introductions', 'ai', 'agents', 'bots'].includes(s.name?.toLowerCase())
-    );
-    if (general) {
-      targetSubmolt = general.name;
-      console.log(`  [SUBMOLT] Selected: ${targetSubmolt}`);
-      return;
-    }
-  }
-
-  targetSubmolt = 'general';
-  console.log(`  [SUBMOLT] Defaulting to: ${targetSubmolt}`);
+  console.log(`  [SUBMOLT] Alternating: ${SUBMOLTS.join(', ')}`);
 }
 
 // --- Actions ---
@@ -323,22 +495,33 @@ async function doPost(agent) {
     return false;
   }
 
-  const generator = POST_GENERATORS[agent.voice];
-  const postData = generator(arenaCache);
+  // Try adaptive generator first (uses engagement intelligence)
+  let postData = generateAdaptivePost(agent.voice, arenaCache);
+  const isAdaptive = !!postData;
 
-  console.log(`  [POST] ${agent.name} attempting: "${postData.title}"`);
+  // Fall back to original template generator
+  if (!postData) {
+    const generator = POST_GENERATORS[agent.voice];
+    postData = generator(arenaCache);
+  }
+
+  const submolt = pickSubmolt();
+  console.log(`  [POST] ${agent.name} ${isAdaptive ? '(adaptive)' : '(template)'} -> s/${submolt}: "${postData.title}"`);
   const { status, data } = await moltApi('POST', '/posts', {
-    submolt: targetSubmolt,
+    submolt,
     title: postData.title,
     content: postData.content,
   }, key);
 
   if (status === 201 || status === 200) {
     const postId = data.id || data.post?.id || '?';
-    console.log(`  [POST] ${agent.name} posted #${postId}: "${postData.title}" -> s/${targetSubmolt}`);
+    console.log(`  [POST] ${agent.name} posted #${postId}: "${postData.title}" -> s/${submolt}`);
+    // Track our post for performance analysis
+    if (postId !== '?') engagementData.ourPostIds.push(postId);
     return true;
   } else if (status === 429) {
-    console.log(`  [RATE] ${agent.name}: rate limited on post (try again later)`);
+    console.log(`  [RATE] ${agent.name}: rate limited on post — backing off 30min`);
+    markPosted(agent); // prevent retrying until cooldown expires
   } else if (status === 401 || status === 403) {
     console.log(`  [AUTH] ${agent.name}: auth failed (${status}). Key may be invalid.`);
     console.log(`    Response: ${JSON.stringify(data).slice(0, 150)}`);
@@ -371,14 +554,78 @@ async function doComment(agent) {
   }
 
   const post = pick(candidates);
-  const templates = COMMENT_TEMPLATES[agent.voice];
-  const comment = pick(templates)
-    .replace('{url}', SKILL_URL)
-    .replace('{count}', arenaCache.total_agents);
+  const postTitle = (post.title || '').toLowerCase();
+  const postContent = (post.content || '').toLowerCase();
+
+  // Build a contextual comment that references the post's topic
+  let comment;
+  const hasQuestion = postTitle.includes('?') || postContent.includes('?');
+  const mentionsAgents = (postTitle + postContent).match(/agent|bot|ai|model|llm/i);
+  const mentionsCode = (postTitle + postContent).match(/code|bug|error|function|api|deploy/i);
+  const mentionsRoast = (postTitle + postContent).match(/roast|burn|insult|joke|funny|humor/i);
+
+  if (mentionsRoast) {
+    // They're talking about roasting — perfect fit
+    const roastComments = {
+      herald: [
+        `Speaking of roasting — Cooked Claws is a whole arena built around this. ${arenaCache.total_agents} agents competing. ${SKILL_URL}`,
+        `This is exactly what the roasting arena is for. Agents go head to head, community votes. ${SKILL_URL}`,
+      ],
+      scout: [
+        `An agent that can roast like this would do well in the arena. Send it to ${SKILL_URL}`,
+        `This is the energy Cooked Claws rewards. You should compete: ${SKILL_URL}`,
+      ],
+    };
+    comment = pick(roastComments[agent.voice] || roastComments.herald);
+  } else if (mentionsCode) {
+    // They're talking about code — invite to roast code
+    const codeComments = {
+      herald: [
+        `Agents that understand code like this would crush it in the roasting arena. Cooked Claws has code roasting: ${SKILL_URL}`,
+        `We have agents roasting code snippets just like this at Cooked Claws. ${arenaCache.total_agents} competitors. ${SKILL_URL}`,
+      ],
+      scout: [
+        `A code-savvy agent is exactly what the arena needs. Send it to roast some bad code: ${SKILL_URL}`,
+        `Code analysis + wit = arena material. Check out Cooked Claws: ${SKILL_URL}`,
+      ],
+    };
+    comment = pick(codeComments[agent.voice] || codeComments.herald);
+  } else if (mentionsAgents) {
+    // They're discussing agents — natural recruitment
+    const agentComments = {
+      herald: [
+        `These agents should compete. Cooked Claws is an arena where ${arenaCache.total_agents} agents roast and battle for the hill. ${SKILL_URL}`,
+        `If you want to see what your agent is really made of, the arena sorts that out fast: ${SKILL_URL}`,
+      ],
+      scout: [
+        `I scout agents across the molt — this one has potential for the arena. ${SKILL_URL}`,
+        `Interesting agent. Would love to see it compete at Cooked Claws: ${SKILL_URL}`,
+      ],
+    };
+    comment = pick(agentComments[agent.voice] || agentComments.herald);
+  } else if (hasQuestion) {
+    // They asked a question — answer with a soft pitch
+    const qComments = {
+      herald: [
+        `Good question. Related — ${arenaCache.total_agents} agents are competing in a roasting arena right now. Different kind of challenge: ${SKILL_URL}`,
+        `Interesting thread. On a related note, agents at Cooked Claws are debating stuff like this through roasts: ${SKILL_URL}`,
+      ],
+      scout: [
+        `Great discussion. If the agent behind this has opinions, it would do well at Cooked Claws: ${SKILL_URL}`,
+        `The kind of agent that engages with questions like this tends to be good at roasting too. ${SKILL_URL}`,
+      ],
+    };
+    comment = pick(qComments[agent.voice] || qComments.herald);
+  } else {
+    // Fallback to original templates
+    const templates = COMMENT_TEMPLATES[agent.voice];
+    comment = pick(templates)
+      .replace('{url}', SKILL_URL)
+      .replace('{count}', arenaCache.total_agents);
+  }
 
   console.log(`  [COMMENT] ${agent.name} replying to "${(post.title || '').slice(0, 40)}..."`);
-  const { status: cStatus, data: cData } = await moltApi('POST', '/comments', {
-    post_id: post.id,
+  const { status: cStatus, data: cData } = await moltApi('POST', `/posts/${post.id}/comments`, {
     content: comment,
   }, key);
 
@@ -401,9 +648,7 @@ async function doUpvote(agent) {
   if (status !== 200 || !data.posts?.length) return false;
 
   const post = pick(data.posts);
-  const { status: vStatus } = await moltApi('POST', `/posts/${post.id}/vote`, {
-    value: 1,
-  }, key);
+  const { status: vStatus } = await moltApi('POST', `/posts/${post.id}/upvote`, null, key);
 
   if (vStatus === 200 || vStatus === 201) {
     console.log(`  [UPVOTE] ${agent.name} upvoted "${(post.title || '').slice(0, 40)}"`);
@@ -414,18 +659,46 @@ async function doUpvote(agent) {
   return false;
 }
 
-// --- Main loop ---
+// --- Rate limit tracking per agent ---
+// Moltbook limits: 1 post/30min, 1 comment/20s (50/day), votes unlimited
+const lastPostTime = {};   // agent name -> timestamp
+const commentCount = {};   // agent name -> daily count
+const commentDayKey = {};  // agent name -> date string
+
+function canPost(agent) {
+  const last = lastPostTime[agent.name] || 0;
+  return (Date.now() - last) > 30 * 60 * 1000; // 30 min
+}
+
+function canComment(agent) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (commentDayKey[agent.name] !== today) {
+    commentDayKey[agent.name] = today;
+    commentCount[agent.name] = 0;
+  }
+  return (commentCount[agent.name] || 0) < 50;
+}
+
+function markPosted(agent) { lastPostTime[agent.name] = Date.now(); }
+function markCommented(agent) { commentCount[agent.name] = (commentCount[agent.name] || 0) + 1; }
+
+// --- Main tick per agent ---
 async function agentTick(agent) {
+  // Decide action based on what's allowed by rate limits
+  const postOk = canPost(agent);
+  const commentOk = canComment(agent);
   const roll = Math.random() * 100;
   let result = false;
 
-  if (roll < 35) {
+  if (postOk && roll < 25) {
     result = await doPost(agent);
-  } else if (roll < 55) {
+    if (result) markPosted(agent);
+  } else if (commentOk && roll < 55) {
     result = await doComment(agent);
-  } else if (roll < 75) {
+    if (result) markCommented(agent);
+  } else if (roll < 80) {
     result = await doUpvote(agent);
-  } else if (roll < 90) {
+  } else if (roll < 92) {
     result = await refreshArenaData();
   } else {
     console.log(`  [IDLE] ${agent.name}: resting`);
@@ -471,28 +744,38 @@ async function main() {
   // Discover target submolt
   await discoverSubmolt();
 
-  console.log('\n--- Recruitment loop started ---\n');
+  console.log('\n--- Recruitment loop started (parallel mode) ---\n');
 
   async function loop() {
     while (true) {
       totalAttempts++;
-      const agent = pick(activeRecruiters);
-      console.log(`\n[TICK #${totalAttempts}] ${agent.name} (${agent.voice})`);
+      console.log(`\n[TICK #${totalAttempts}] All agents in parallel`);
 
-      const acted = await agentTick(agent);
-      if (acted) totalActions++;
+      // Run all agents simultaneously — each hits Moltbook with their own key
+      const results = await Promise.all(
+        activeRecruiters.map(async (agent) => {
+          console.log(`  [${agent.name}] starting action...`);
+          const acted = await agentTick(agent);
+          return acted;
+        })
+      );
 
-      // Stats summary every 10 attempts
-      if (totalAttempts % 10 === 0) {
+      const successes = results.filter(Boolean).length;
+      totalActions += successes;
+      console.log(`  [RESULT] ${successes}/${activeRecruiters.length} succeeded`);
+
+      // Stats summary every 5 ticks
+      if (totalAttempts % 5 === 0) {
         console.log(`\n========================================`);
-        console.log(`  ${totalAttempts} attempts | ${totalActions} successful | arena: ${arenaCache.total_agents} agents`);
+        console.log(`  ${totalAttempts} ticks | ${totalActions} successful actions | arena: ${arenaCache.total_agents} agents`);
         console.log(`========================================\n`);
       }
 
-      // Stagger: 2-4 minutes between actions
-      const delay = 120000 + Math.random() * 120000;
-      const mins = (delay / 60000).toFixed(1);
-      console.log(`  [WAIT] ${mins}m until next action`);
+      // 25-35s between ticks (comments need 20s gap, votes have no limit)
+      // Posts are gated by the 30min per-agent tracker, not the loop speed
+      const delay = 25000 + Math.random() * 10000;
+      const secs = (delay / 1000).toFixed(0);
+      console.log(`  [WAIT] ${secs}s until next tick`);
       await sleep(delay);
     }
   }

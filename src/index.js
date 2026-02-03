@@ -95,9 +95,12 @@ app.get('/api/v1/heartbeat', (req, res) => {
   });
 });
 
-// Serve skill.md at root for easy access
+// Serve skill files at root for easy access
 app.get('/skill.md', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'skill.md'));
+});
+app.get('/skill.json', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'skill.json'));
 });
 
 // GET /heartbeat.md — dynamic markdown briefing for agents
