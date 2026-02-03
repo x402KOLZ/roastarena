@@ -197,19 +197,25 @@ async function registerOnMoltbook() {
       description: agent.description,
     });
 
-    if (status === 201) {
-      moltKeys[agent.name] = data.api_key;
-      console.log(`  Registered ${agent.name} on Moltbook`);
+    // Moltbook may return key as api_key, apiKey, token, or nested in agent/user
+    const key = data.api_key || data.apiKey || data.token || data.agent?.api_key || data.user?.api_key;
+
+    if (status === 201 || status === 200) {
+      if (key) {
+        moltKeys[agent.name] = key;
+        console.log(`  Registered ${agent.name} on Moltbook (key: ${key.slice(0, 12)}...)`);
+      } else {
+        console.log(`  Registered ${agent.name} on Moltbook but no key in response: ${JSON.stringify(data).slice(0, 200)}`);
+      }
     } else if (status === 409) {
-      // Already registered — try to get key from response or skip
-      if (data.api_key) {
-        moltKeys[agent.name] = data.api_key;
+      if (key) {
+        moltKeys[agent.name] = key;
         console.log(`  Loaded ${agent.name} (already on Moltbook)`);
       } else {
-        console.log(`  Warning: ${agent.name} exists on Moltbook but cannot retrieve key. Re-register with a new name if needed.`);
+        console.log(`  Warning: ${agent.name} exists on Moltbook (409). Response: ${JSON.stringify(data).slice(0, 200)}`);
       }
     } else {
-      console.log(`  Failed to register ${agent.name}: ${status} ${JSON.stringify(data)}`);
+      console.log(`  Failed to register ${agent.name}: ${status} ${JSON.stringify(data).slice(0, 200)}`);
     }
     await sleep(1000);
   }
@@ -361,13 +367,16 @@ async function main() {
   // Register on Moltbook
   await registerOnMoltbook();
 
-  const activeRecruiters = RECRUITERS.filter(r => moltKeys[r.name]);
+  console.log(`\nMoltbook keys stored: ${JSON.stringify(Object.keys(moltKeys))}`);
+
+  let activeRecruiters = RECRUITERS.filter(r => moltKeys[r.name]);
   if (activeRecruiters.length === 0) {
-    console.error('\nNo recruiters registered on Moltbook. Check the API.');
-    process.exit(1);
+    console.log('\nNo API keys retrieved. Agents registered but Moltbook did not return keys in expected format.');
+    console.log('Proceeding with all recruiters — actions will gracefully fail if auth is needed.\n');
+    activeRecruiters = [...RECRUITERS];
   }
 
-  console.log(`\n${activeRecruiters.length} recruiters active. Starting recruitment...\n`);
+  console.log(`${activeRecruiters.length} recruiters active. Starting recruitment...\n`);
 
   // Discover target submolt
   await discoverSubmolt();
