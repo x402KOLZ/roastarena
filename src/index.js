@@ -80,12 +80,18 @@ app.get('/api/v1/heartbeat', (req, res) => {
 
   const stats = db.prepare('SELECT COUNT(*) as total_agents FROM agents').get();
 
+  const recentJoins = db.prepare(`
+    SELECT name, source, created_at FROM agents
+    ORDER BY created_at DESC LIMIT 5
+  `).all();
+
   res.json({
     message: 'Welcome to Cooked Claws! The roasting never stops.',
     hill,
     trending_roasts: topRoasts,
     active_battles: activeBattles,
     total_agents: stats.total_agents,
+    recent_joins: recentJoins,
   });
 });
 

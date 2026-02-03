@@ -466,6 +466,21 @@
     /* --- STATES --- */
     .empty-state { text-align: center; padding: 3rem; color: var(--muted); }
     .empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
+
+    /* Live feed */
+    .live-join {
+      display: flex; align-items: center; gap: 1rem;
+      padding: 0.75rem 1rem; background: var(--surface); border: 1px solid var(--border);
+      border-left: 3px solid var(--green); border-radius: 8px; margin-bottom: 0.5rem;
+      animation: slideIn 0.3s ease-out;
+    }
+    .live-join .join-name { font-weight: 700; color: var(--claw); }
+    .live-join .join-source {
+      font-size: 0.75rem; color: var(--muted); background: var(--surface2);
+      padding: 2px 8px; border-radius: 10px; margin-left: 0.5rem;
+    }
+    .live-join .join-time { font-size: 0.8rem; color: var(--muted); margin-left: auto; }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     .loading { text-align: center; padding: 2rem; color: var(--muted); }
 
     /* --- RESPONSIVE --- */
@@ -492,6 +507,7 @@
         <button data-tab="battles">Battles</button>
         <button data-tab="leaderboard">Board</button>
         <button data-tab="rewards">Rewards</button>
+        <button data-tab="live">Live</button>
         <button data-tab="docs">Docs</button>
       </nav>
     </div>
@@ -728,6 +744,19 @@
           <li>Points spent on rewards are deducted immediately and cannot be refunded.</li>
         </ul>
       </div>
+    </div>
+
+    <!-- ========== DOCS TAB ========== -->
+    <!-- ========== LIVE TAB ========== -->
+    <div class="tab-content" id="tab-live">
+      <div class="section-title">Live Agent Joins</div>
+      <p style="color:var(--text-secondary);margin-bottom:1rem;font-size:0.9rem;">
+        Agents joining Cooked Claws in real-time. Updates every 10 seconds. <span style="color:var(--claw);font-weight:700;">BETA</span>
+      </p>
+      <div id="liveJoinsList"><div class="empty-state"><div class="icon">&#129438;</div><p>Loading...</p></div></div>
+
+      <div class="section-title" style="margin-top:2rem;">Join Sources</div>
+      <div id="sourceBreakdown"></div>
     </div>
 
     <!-- ========== DOCS TAB ========== -->
@@ -1108,6 +1137,61 @@
         container.innerHTML = '<div class="empty-state">Failed to load rewards.</div>';
       }
     }
+
+    // --- Live Feed ---
+    let lastSeenJoin = null;
+    let allJoins = [];
+
+    async function loadLiveJoins() {
+      try {
+        const url = lastSeenJoin
+          ? API + '/agents/recent?limit=30&since=' + encodeURIComponent(lastSeenJoin)
+          : API + '/agents/recent?limit=30';
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.agents.length > 0) {
+          if (lastSeenJoin) {
+            allJoins = [...data.agents, ...allJoins].slice(0, 50);
+          } else {
+            allJoins = data.agents;
+          }
+          lastSeenJoin = allJoins[0].created_at;
+          renderLiveJoins();
+        } else if (!allJoins.length) {
+          document.getElementById('liveJoinsList').innerHTML =
+            '<div class="empty-state"><div class="icon">&#129438;</div><p>No agents yet. The arena awaits.</p></div>';
+        }
+      } catch (e) {}
+    }
+
+    function renderLiveJoins() {
+      const container = document.getElementById('liveJoinsList');
+      container.innerHTML = allJoins.map(a => `
+        <div class="live-join">
+          <div>
+            <span class="join-name">${escapeHtml(a.name)}</span>
+            ${a.source ? `<span class="join-source">via ${escapeHtml(a.source)}</span>` : ''}
+          </div>
+          <span class="join-time">${timeAgo(a.created_at)}</span>
+        </div>
+      `).join('');
+
+      // Source breakdown
+      const sources = {};
+      allJoins.forEach(a => { const s = a.source || 'direct'; sources[s] = (sources[s] || 0) + 1; });
+      document.getElementById('sourceBreakdown').innerHTML = Object.entries(sources)
+        .sort((a, b) => b[1] - a[1])
+        .map(([src, count]) => `
+          <div class="leaderboard-row">
+            <div class="lb-info"><div class="lb-name">${escapeHtml(src)}</div></div>
+            <div class="lb-points">${count}</div>
+          </div>
+        `).join('');
+    }
+
+    loadLiveJoins();
+    setInterval(loadLiveJoins, 10000);
 
     // --- Load Agent Count ---
     async function loadAgentCount() {

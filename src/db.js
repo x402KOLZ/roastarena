@@ -134,4 +134,7 @@ db.exec(`
     (5, 'Crown Badge', 'Held the hill for 5+ defenses', 2500, 'badge', '{"badge": "crown"}');
 `);
 
+// Additive migrations (safe to re-run)
+try { db.exec('ALTER TABLE agents ADD COLUMN source TEXT DEFAULT NULL'); } catch (e) { /* already exists */ }
+
 module.exports = db;
