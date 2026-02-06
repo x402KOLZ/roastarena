@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:moltbook.com)",
+      "WebFetch(domain:www.moltbook.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:www.creative-tim.com)",
+      "Bash(git push)",
+      "WebFetch(domain:docs.openclaw.ai)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd Moltbook recruiting agents and live join tracking\n\n- Add source column to agents table for referral tracking\n- Accept optional source field in agent registration\n- Add GET /api/v1/agents/recent endpoint for polling new joins\n- Add recent_joins to heartbeat response\n- Add Live tab to frontend with 10s polling feed and source breakdown\n- Create scripts/recruiters.js: 3 agents \\(ClawCrier, RoastScout, ShellShock\\) that post on Moltbook to recruit agents to Cooked Claws\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix recruiter script: handle Moltbook API key response format\n\n- Check multiple possible key field names in Moltbook response\n- Log actual response for debugging when key not found\n- Continue running even without keys \\(graceful degradation\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nPersist Moltbook keys + verbose recruitment logging\n\n- Save Moltbook API keys to data/moltbook-keys.json on registration\n- Load saved keys on restart \\(solves 409 \"already registered\" issue\\)\n- Add detailed logging for every action attempt with status codes\n- Add tick counter, success rate tracking, wait time display\n- Add moltbook-keys.json to .gitignore \\(contains secrets\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nRename recruiter agents for fresh Moltbook registration\n\nOld names \\(ClawCrier, RoastScout, ShellShock\\) are stuck on Moltbook\nwith lost keys. Renamed to _CC suffix for fresh registration with\nkey persistence now in place.\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(curl:*)",
+      "Bash(python3 -c:*)",
+      "Bash(node:*)",
+      "Bash(for offset in 250 300 400 500)",
+      "Bash(do)",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(git status:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd Moltbook skill manifest, s/cookedclaws submolt, and recruiter improvements\n\n- Add skill.json \\(moltbot-compatible skill manifest\\) for agent discovery\n- Serve /skill.json route alongside /skill.md\n- Recruiter script: remove unclaimed ShellShock_CC agent\n- Recruiter script: parallel execution with Promise.all\n- Recruiter script: proper rate limit tracking \\(30min posts, 50/day comments\\)\n- Recruiter script: 429 backoff fix \\(markPosted on rate limit\\)\n- Recruiter script: engagement intelligence system \\(analyzeEngagement\\)\n- Recruiter script: adaptive post generator using trending data\n- Recruiter script: contextual comments based on post topic\n- Recruiter script: alternate posts between s/cookedclaws and s/general\n- Fix comment endpoint \\(POST /posts/{id}/comments\\)\n- Fix upvote endpoint \\(POST /posts/{id}/upvote\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(for agent in \"eltociear\" \"OpenClawMind\" \"ElclongAI\" \"Neo\" \"Kustos\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd state persistence to recruiter script for restart resilience\n\n- Save/restore engagement data \\(bestStyle, trendingKeywords, ourPostIds\\)\n- Save/restore rate limit tracking \\(lastPostTime, commentCount\\)\n- Save/restore submoltIndex for alternating between cookedclaws/general\n- State saved every 5 ticks to data/recruiter-state.json\n- Rate limits only restored if saved within last hour\n- Engagement data restored regardless of age\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd Procfile for Railway multi-process deployment\n\n- web: main Cooked Claws API server\n- recruiter: Moltbook recruitment script \\(runs continuously\\)\n\nTo deploy recruiter on Railway, create a new service using the same repo\nand set the start command to: node scripts/recruiters.js --url https://roastarena-production.up.railway.app\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(cd:*)",
+      "Bash(git restore:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd recruitment dashboard and env var key support\n\n- Add /api/v1/recruitment/stats endpoint with live recruitment metrics\n- Add public/dashboard.html with auto-refreshing stats display\n- Add MOLTBOOK_KEYS env var support for Railway deployment\n- Shows agent joins, moltbook activity, king status, joins chart\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit:*)"
+    ]
+  }
+}

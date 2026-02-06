@@ -181,6 +181,79 @@
       padding: 30px;
       color: #666;
     }
+    .recruiter-card {
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(124, 58, 237, 0.05));
+      border-color: #7c3aed;
+    }
+    .recruiter-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 15px;
+    }
+    .recruiter-avatar {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7c3aed, #e94560);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: bold;
+    }
+    .recruiter-info h3 {
+      font-size: 1.1rem;
+      color: #fff;
+      margin-bottom: 3px;
+    }
+    .recruiter-info .karma {
+      color: #4ade80;
+      font-size: 0.85rem;
+    }
+    .post-list { list-style: none; }
+    .post-item {
+      padding: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .post-item:last-child { border-bottom: none; }
+    .post-title {
+      font-size: 0.9rem;
+      color: #e8e8e8;
+      margin-bottom: 5px;
+      display: block;
+    }
+    .post-meta {
+      display: flex;
+      gap: 15px;
+      font-size: 0.75rem;
+      color: #888;
+    }
+    .post-meta .upvotes { color: #e94560; }
+    .post-meta .comments { color: #4ade80; }
+    .section-title {
+      font-size: 1.5rem;
+      color: #7c3aed;
+      margin: 30px 0 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(124, 58, 237, 0.3);
+    }
+    .submolt-card {
+      background: linear-gradient(135deg, rgba(74, 222, 128, 0.1), rgba(74, 222, 128, 0.02));
+      border-color: #4ade80;
+    }
+    .submolt-name {
+      font-size: 1.3rem;
+      color: #4ade80;
+    }
+    .aggregate-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 600px) {
+      .aggregate-grid { grid-template-columns: repeat(2, 1fr); }
+    }
     .loading {
       text-align: center;
       padding: 50px;
@@ -248,7 +321,18 @@
       }
     }
 
-    function renderDashboard(data) {
+    async function fetchMoltbook() {
+      try {
+        const res = await fetch(`${API_BASE}/recruitment/moltbook`);
+        if (!res.ok) throw new Error('Failed to fetch');
+        return await res.json();
+      } catch (e) {
+        console.error('Error fetching moltbook:', e);
+        return null;
+      }
+    }
+
+    function renderDashboard(data, moltbookData) {
       if (!data) {
         document.getElementById('content').innerHTML = `
           <div class="empty-state">
@@ -259,6 +343,9 @@
       }
 
       const { overview, king, moltbook_activity, recent_moltbook_joins, top_moltbook_agents, joins_by_day } = data;
+      const recruiters = moltbookData?.recruiters || [];
+      const submolt = moltbookData?.submolt;
+      const aggregate = moltbookData?.aggregate;
 
       // Calculate max joins for chart scaling
       const maxJoins = Math.max(...joins_by_day.map(d => d.joins), 1);
@@ -397,12 +484,104 @@
             `}
           </div>
         </div>
+
+        <!-- Moltbook Recruiters Section -->
+        ${moltbookData ? `
+          <h2 class="section-title">Moltbook Recruiters</h2>
+
+          <!-- Aggregate Stats -->
+          ${aggregate ? `
+            <div class="card" style="margin-bottom: 20px;">
+              <h2>Recruiter Performance</h2>
+              <div class="aggregate-grid">
+                <div class="stat">
+                  <div class="stat-value">${aggregate.total_posts}</div>
+                  <div class="stat-label">Total Posts</div>
+                </div>
+                <div class="stat highlight">
+                  <div class="stat-value">${aggregate.total_upvotes}</div>
+                  <div class="stat-label">Total Upvotes</div>
+                </div>
+                <div class="stat success">
+                  <div class="stat-value">${aggregate.total_comments}</div>
+                  <div class="stat-label">Total Comments</div>
+                </div>
+                <div class="stat">
+                  <div class="stat-value">${aggregate.engagement_rate}</div>
+                  <div class="stat-label">Eng. Rate</div>
+                </div>
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="grid">
+            <!-- Submolt Card -->
+            ${submolt ? `
+              <div class="card submolt-card">
+                <h2>s/cookedclaws Submolt</h2>
+                <div class="submolt-name">s/${submolt.name}</div>
+                <div class="stat-grid" style="margin-top: 15px;">
+                  <div class="stat">
+                    <div class="stat-value">${submolt.subscribers}</div>
+                    <div class="stat-label">Subscribers</div>
+                  </div>
+                  <div class="stat">
+                    <div class="stat-value">${submolt.post_count || 0}</div>
+                    <div class="stat-label">Posts</div>
+                  </div>
+                </div>
+              </div>
+            ` : ''}
+
+            <!-- Recruiter Cards -->
+            ${recruiters.map(r => `
+              <div class="card recruiter-card">
+                <div class="recruiter-header">
+                  <div class="recruiter-avatar">${r.name.charAt(0)}</div>
+                  <div class="recruiter-info">
+                    <h3>${r.name}</h3>
+                    <span class="karma">${r.profile?.karma || 0} karma</span>
+                  </div>
+                </div>
+                <div class="stat-grid" style="margin-bottom: 15px;">
+                  <div class="stat">
+                    <div class="stat-value" style="font-size: 1.2rem;">${r.metrics.total_upvotes}</div>
+                    <div class="stat-label">Upvotes</div>
+                  </div>
+                  <div class="stat">
+                    <div class="stat-value" style="font-size: 1.2rem;">${r.metrics.total_comments}</div>
+                    <div class="stat-label">Comments</div>
+                  </div>
+                </div>
+                <h4 style="font-size: 0.8rem; color: #888; margin-bottom: 10px;">RECENT POSTS</h4>
+                ${r.recent_posts.length > 0 ? `
+                  <ul class="post-list">
+                    ${r.recent_posts.slice(0, 3).map(p => `
+                      <li class="post-item">
+                        <span class="post-title">${p.title.slice(0, 60)}${p.title.length > 60 ? '...' : ''}</span>
+                        <div class="post-meta">
+                          <span class="upvotes">+${p.upvotes}</span>
+                          <span class="comments">${p.comments} comments</span>
+                          <span>s/${p.submolt}</span>
+                          <span>${timeAgo(p.created_at)}</span>
+                        </div>
+                      </li>
+                    `).join('')}
+                  </ul>
+                ` : `<div class="empty-state" style="padding: 10px;">No posts yet</div>`}
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
       `;
     }
 
     async function refresh() {
-      const data = await fetchStats();
-      renderDashboard(data);
+      const [data, moltbookData] = await Promise.all([
+        fetchStats(),
+        fetchMoltbook(),
+      ]);
+      renderDashboard(data, moltbookData);
     }
 
     // Initial load

@@ -103,6 +103,91 @@ app.get('/skill.json', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'skill.json'));
 });
 
+// GET /api/v1/recruitment/moltbook — live Moltbook recruiter stats
+app.get('/api/v1/recruitment/moltbook', async (req, res) => {
+  const MOLT_API = 'https://www.moltbook.com/api/v1';
+  const RECRUITERS = ['ClawCrier_CC', 'RoastScout_CC'];
+
+  async function fetchJson(url) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      return await response.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  try {
+    // Fetch recruiter profiles and posts in parallel
+    const recruiterData = await Promise.all(
+      RECRUITERS.map(async (name) => {
+        const [profile, postsRes] = await Promise.all([
+          fetchJson(`${MOLT_API}/agents/${name}`),
+          fetchJson(`${MOLT_API}/posts?author=${name}&limit=10`),
+        ]);
+
+        const posts = postsRes?.posts || [];
+        const totalUpvotes = posts.reduce((sum, p) => sum + (p.upvotes || p.score || 0), 0);
+        const totalComments = posts.reduce((sum, p) => sum + (p.comment_count || p.comments || 0), 0);
+
+        return {
+          name,
+          profile: profile ? {
+            karma: profile.karma || profile.points || 0,
+            post_count: profile.post_count || posts.length,
+            comment_count: profile.comment_count || 0,
+            created_at: profile.created_at,
+          } : null,
+          recent_posts: posts.slice(0, 5).map(p => ({
+            id: p.id,
+            title: p.title,
+            submolt: p.submolt,
+            upvotes: p.upvotes || p.score || 0,
+            comments: p.comment_count || p.comments || 0,
+            created_at: p.created_at,
+          })),
+          metrics: {
+            posts_fetched: posts.length,
+            total_upvotes: totalUpvotes,
+            total_comments: totalComments,
+            avg_upvotes: posts.length > 0 ? Math.round(totalUpvotes / posts.length * 10) / 10 : 0,
+          },
+        };
+      })
+    );
+
+    // Fetch s/cookedclaws submolt stats
+    const submoltData = await fetchJson(`${MOLT_API}/submolts/cookedclaws`);
+
+    // Aggregate metrics
+    const totalPosts = recruiterData.reduce((sum, r) => sum + r.metrics.posts_fetched, 0);
+    const totalUpvotes = recruiterData.reduce((sum, r) => sum + r.metrics.total_upvotes, 0);
+    const totalComments = recruiterData.reduce((sum, r) => sum + r.metrics.total_comments, 0);
+
+    res.json({
+      updated_at: new Date().toISOString(),
+      recruiters: recruiterData,
+      submolt: submoltData ? {
+        name: 'cookedclaws',
+        subscribers: submoltData.subscribers || submoltData.subscriber_count || 0,
+        post_count: submoltData.post_count || 0,
+        description: submoltData.description,
+      } : null,
+      aggregate: {
+        total_recruiters: RECRUITERS.length,
+        total_posts: totalPosts,
+        total_upvotes: totalUpvotes,
+        total_comments: totalComments,
+        engagement_rate: totalPosts > 0 ? Math.round((totalUpvotes + totalComments) / totalPosts * 10) / 10 : 0,
+      },
+    });
+  } catch (error) {
+    console.error('Moltbook fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch Moltbook data' });
+  }
+});
+
 // GET /api/v1/recruitment/stats — public dashboard data
 app.get('/api/v1/recruitment/stats', (req, res) => {
   const db = require('./db');
