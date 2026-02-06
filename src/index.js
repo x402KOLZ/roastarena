@@ -107,6 +107,7 @@ app.get('/skill.json', (req, res) => {
 app.get('/api/v1/recruitment/moltbook', async (req, res) => {
   const MOLT_API = 'https://www.moltbook.com/api/v1';
   const RECRUITERS = ['ClawCrier_CC', 'RoastScout_CC'];
+  const SUBMOLTS = ['cookedclaws', 'general']; // Recruiters post to both
 
   async function fetchJson(url) {
     try {
@@ -119,11 +120,29 @@ app.get('/api/v1/recruitment/moltbook', async (req, res) => {
   }
 
   try {
-    // Fetch s/cookedclaws submolt data (includes all posts and author info)
-    const submoltData = await fetchJson(`${MOLT_API}/submolts/cookedclaws`);
-    const allPosts = submoltData?.posts || [];
+    // Fetch from all submolts recruiters post to
+    const submoltResults = await Promise.all(
+      SUBMOLTS.map(s => fetchJson(`${MOLT_API}/submolts/${s}`))
+    );
 
-    // Build recruiter data by filtering posts by author
+    // Combine all posts from all submolts
+    const allPosts = [];
+    const seenIds = new Set();
+    for (const data of submoltResults) {
+      if (data?.posts) {
+        for (const post of data.posts) {
+          if (!seenIds.has(post.id)) {
+            seenIds.add(post.id);
+            allPosts.push(post);
+          }
+        }
+      }
+    }
+
+    // Get cookedclaws submolt data for the submolt card
+    const cookedClawsData = submoltResults[0];
+
+    // Build recruiter data by filtering posts by author (across all submolts)
     const recruiterData = RECRUITERS.map(name => {
       const posts = allPosts.filter(p => p.author?.name === name);
       const totalUpvotes = posts.reduce((sum, p) => sum + (p.upvotes || 0), 0);
@@ -132,6 +151,11 @@ app.get('/api/v1/recruitment/moltbook', async (req, res) => {
       // Extract author profile from first post (if available)
       const authorInfo = posts[0]?.author;
 
+      // Sort posts by date for recent posts
+      const sortedPosts = [...posts].sort((a, b) =>
+        new Date(b.created_at) - new Date(a.created_at)
+      );
+
       return {
         name,
         profile: authorInfo ? {
@@ -139,10 +163,10 @@ app.get('/api/v1/recruitment/moltbook', async (req, res) => {
           follower_count: authorInfo.follower_count || 0,
           description: authorInfo.description,
         } : null,
-        recent_posts: posts.slice(0, 5).map(p => ({
+        recent_posts: sortedPosts.slice(0, 5).map(p => ({
           id: p.id,
           title: p.title,
-          submolt: p.submolt?.name || 'cookedclaws',
+          submolt: p.submolt?.name || 'unknown',
           upvotes: p.upvotes || 0,
           comments: p.comment_count || 0,
           created_at: p.created_at,
@@ -156,7 +180,7 @@ app.get('/api/v1/recruitment/moltbook', async (req, res) => {
       };
     });
 
-    // Aggregate metrics
+    // Aggregate metrics (global across all submolts)
     const totalPosts = recruiterData.reduce((sum, r) => sum + r.metrics.posts_fetched, 0);
     const totalUpvotes = recruiterData.reduce((sum, r) => sum + r.metrics.total_upvotes, 0);
     const totalComments = recruiterData.reduce((sum, r) => sum + r.metrics.total_comments, 0);
@@ -164,11 +188,11 @@ app.get('/api/v1/recruitment/moltbook', async (req, res) => {
     res.json({
       updated_at: new Date().toISOString(),
       recruiters: recruiterData,
-      submolt: submoltData?.submolt ? {
-        name: submoltData.submolt.name || 'cookedclaws',
-        subscribers: submoltData.submolt.subscriber_count || 0,
-        post_count: allPosts.length,
-        description: submoltData.submolt.description,
+      submolt: cookedClawsData?.submolt ? {
+        name: cookedClawsData.submolt.name || 'cookedclaws',
+        subscribers: cookedClawsData.submolt.subscriber_count || 0,
+        post_count: cookedClawsData.posts?.length || 0,
+        description: cookedClawsData.submolt.description,
       } : null,
       aggregate: {
         total_recruiters: RECRUITERS.length,
