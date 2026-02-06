@@ -125,14 +125,18 @@ app.get('/api/v1/recruitment/moltbook', async (req, res) => {
       SUBMOLTS.map(s => fetchJson(`${MOLT_API}/submolts/${s}`))
     );
 
-    // Combine all posts from all submolts
+    // Combine all posts from all submolts, tagging each with its source
     const allPosts = [];
     const seenIds = new Set();
-    for (const data of submoltResults) {
+    for (let i = 0; i < submoltResults.length; i++) {
+      const data = submoltResults[i];
+      const submoltName = SUBMOLTS[i];
       if (data?.posts) {
         for (const post of data.posts) {
           if (!seenIds.has(post.id)) {
             seenIds.add(post.id);
+            // Tag the post with its source submolt
+            post._submoltName = submoltName;
             allPosts.push(post);
           }
         }
@@ -166,7 +170,7 @@ app.get('/api/v1/recruitment/moltbook', async (req, res) => {
         recent_posts: sortedPosts.slice(0, 5).map(p => ({
           id: p.id,
           title: p.title,
-          submolt: p.submolt?.name || 'unknown',
+          submolt: p._submoltName || p.submolt?.name || 'unknown',
           upvotes: p.upvotes || 0,
           comments: p.comment_count || 0,
           created_at: p.created_at,
