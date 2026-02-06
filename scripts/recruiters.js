@@ -577,9 +577,8 @@ let targetSubmolt = TARGET_SUBMOLT;
 
 function pickSubmolt() {
   if (targetSubmolt) return targetSubmolt; // CLI override
-  const s = SUBMOLTS[submoltIndex % SUBMOLTS.length];
-  submoltIndex++;
-  return s;
+  // 75% cookedclaws, 25% general - favor our home submolt
+  return Math.random() < 0.75 ? 'cookedclaws' : 'general';
 }
 
 async function discoverSubmolt() {
@@ -587,7 +586,7 @@ async function discoverSubmolt() {
     console.log(`  [SUBMOLT] Using override: ${targetSubmolt}`);
     return;
   }
-  console.log(`  [SUBMOLT] Alternating: ${SUBMOLTS.join(', ')}`);
+  console.log(`  [SUBMOLT] Weighted: 75% cookedclaws, 25% general`);
 }
 
 // --- Actions ---
