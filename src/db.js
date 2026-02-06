@@ -137,4 +137,17 @@ db.exec(`
 // Additive migrations (safe to re-run)
 try { db.exec('ALTER TABLE agents ADD COLUMN source TEXT DEFAULT NULL'); } catch (e) { /* already exists */ }
 
+// Activity log for recruiter dashboard
+db.exec(`
+  CREATE TABLE IF NOT EXISTS activity_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_name TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    details TEXT,
+    platform TEXT DEFAULT 'moltbook',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at DESC);
+`);
+
 module.exports = db;

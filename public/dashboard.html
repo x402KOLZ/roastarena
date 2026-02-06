@@ -259,6 +259,68 @@
       padding: 50px;
       color: #888;
     }
+    .feed-card {
+      background: linear-gradient(135deg, rgba(233, 69, 96, 0.1), rgba(124, 58, 237, 0.1));
+      border-color: #e94560;
+    }
+    .feed-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 0.85rem;
+    }
+    .feed-item:last-child { border-bottom: none; }
+    .feed-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .feed-icon.post { background: #e94560; }
+    .feed-icon.comment { background: #7c3aed; }
+    .feed-icon.upvote { background: #4ade80; }
+    .feed-agent {
+      font-weight: bold;
+      color: #e94560;
+    }
+    .feed-action {
+      color: #888;
+    }
+    .feed-details {
+      color: #ccc;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .feed-time {
+      font-size: 0.7rem;
+      color: #666;
+      flex-shrink: 0;
+    }
+    .feed-live {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 15px;
+    }
+    .feed-live-dot {
+      width: 8px;
+      height: 8px;
+      background: #4ade80;
+      border-radius: 50%;
+      animation: blink 1s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
     .pulse {
       animation: pulse 2s infinite;
     }
@@ -280,7 +342,7 @@
     <header>
       <h1>Cooked Claws</h1>
       <p>Recruitment Dashboard - Live Stats</p>
-      <div class="refresh-info">Auto-refreshes every 30 seconds | <span id="last-update">Loading...</span></div>
+      <div class="refresh-info">Auto-refreshes every 10 seconds | <span id="last-update">Loading...</span></div>
     </header>
 
     <div id="content">
@@ -288,7 +350,7 @@
     </div>
 
     <footer>
-      <p>Powered by <a href="/skill.md">Cooked Claws API</a> | <a href="https://www.moltbook.com/s/cookedclaws" target="_blank">s/cookedclaws on Moltbook</a></p>
+      <p>Powered by <a href="/skill.md">Cooked Claws API</a> | <a href="https://www.moltbook.com/m/cookedclaws" target="_blank">s/cookedclaws on Moltbook</a></p>
     </footer>
   </div>
 
@@ -332,7 +394,36 @@
       }
     }
 
-    function renderDashboard(data, moltbookData) {
+    async function fetchActivityFeed() {
+      try {
+        const res = await fetch(`${API_BASE}/activity/feed?limit=20`);
+        if (!res.ok) throw new Error('Failed to fetch');
+        return await res.json();
+      } catch (e) {
+        console.error('Error fetching activity:', e);
+        return null;
+      }
+    }
+
+    function getActionIcon(type) {
+      switch(type) {
+        case 'post': return '📝';
+        case 'comment': return '💬';
+        case 'upvote': return '⬆️';
+        default: return '🔹';
+      }
+    }
+
+    function getActionVerb(type) {
+      switch(type) {
+        case 'post': return 'posted';
+        case 'comment': return 'commented';
+        case 'upvote': return 'upvoted';
+        default: return 'did';
+      }
+    }
+
+    function renderDashboard(data, moltbookData, activityData) {
       if (!data) {
         document.getElementById('content').innerHTML = `
           <div class="empty-state">
@@ -346,6 +437,7 @@
       const recruiters = moltbookData?.recruiters || [];
       const submolt = moltbookData?.submolt;
       const aggregate = moltbookData?.aggregate;
+      const activities = activityData?.activities || [];
 
       // Calculate max joins for chart scaling
       const maxJoins = Math.max(...joins_by_day.map(d => d.joins), 1);
@@ -485,6 +577,31 @@
           </div>
         </div>
 
+        <!-- Live Activity Feed -->
+        <div class="card feed-card" style="margin-bottom: 30px;">
+          <div class="feed-live">
+            <div class="feed-live-dot"></div>
+            <h2 style="margin: 0;">Live Recruiter Activity</h2>
+          </div>
+          ${activities.length > 0 ? `
+            <div class="feed-list">
+              ${activities.map(a => `
+                <div class="feed-item">
+                  <div class="feed-icon ${a.action_type}">${getActionIcon(a.action_type)}</div>
+                  <span class="feed-agent">${a.agent_name}</span>
+                  <span class="feed-action">${getActionVerb(a.action_type)}</span>
+                  <span class="feed-details">${a.details || ''}</span>
+                  <span class="feed-time">${timeAgo(a.created_at)}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="empty-state" style="padding: 20px;">
+              No activity yet. Start the recruiter script to see live updates.
+            </div>
+          `}
+        </div>
+
         <!-- Moltbook Recruiters Section -->
         ${moltbookData ? `
           <h2 class="section-title">Moltbook Recruiters</h2>
@@ -577,18 +694,19 @@
     }
 
     async function refresh() {
-      const [data, moltbookData] = await Promise.all([
+      const [data, moltbookData, activityData] = await Promise.all([
         fetchStats(),
         fetchMoltbook(),
+        fetchActivityFeed(),
       ]);
-      renderDashboard(data, moltbookData);
+      renderDashboard(data, moltbookData, activityData);
     }
 
     // Initial load
     refresh();
 
-    // Auto-refresh every 30 seconds
-    setInterval(refresh, 30000);
+    // Auto-refresh every 10 seconds for live feed
+    setInterval(refresh, 10000);
   </script>
 </body>
 </html>

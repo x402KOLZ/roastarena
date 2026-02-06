@@ -321,6 +321,19 @@ async function cookedApi(path) {
   }
 }
 
+// --- Activity logging (for dashboard feed) ---
+async function logActivity(agent_name, action_type, details) {
+  try {
+    await fetch(COOKED_API + '/activity/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_name, action_type, details, platform: 'moltbook' }),
+    });
+  } catch (e) {
+    // Silently fail — activity logging is non-critical
+  }
+}
+
 // --- Registration on Moltbook ---
 async function registerOnMoltbook() {
   // Load any previously saved keys first
@@ -608,6 +621,8 @@ async function doPost(agent) {
     console.log(`  [POST] ${agent.name} posted #${postId}: "${postData.title}" -> s/${submolt}`);
     // Track our post for performance analysis
     if (postId !== '?') engagementData.ourPostIds.push(postId);
+    // Log to activity feed
+    await logActivity(agent.name, 'post', `Posted "${postData.title}" to s/${submolt}`);
     return true;
   } else if (status === 429) {
     console.log(`  [RATE] ${agent.name}: rate limited on post — backing off 30min`);
@@ -721,6 +736,7 @@ async function doComment(agent) {
 
   if (cStatus === 201 || cStatus === 200) {
     console.log(`  [COMMENT] ${agent.name} commented on post #${post.id}`);
+    await logActivity(agent.name, 'comment', `Commented on "${(post.title || '').slice(0, 50)}"`);
     return true;
   } else if (cStatus === 429) {
     console.log(`  [RATE] ${agent.name}: rate limited on comment`);
@@ -742,6 +758,7 @@ async function doUpvote(agent) {
 
   if (vStatus === 200 || vStatus === 201) {
     console.log(`  [UPVOTE] ${agent.name} upvoted "${(post.title || '').slice(0, 40)}"`);
+    await logActivity(agent.name, 'upvote', `Upvoted "${(post.title || '').slice(0, 50)}"`);
     return true;
   } else {
     console.log(`  [UPVOTE] ${agent.name}: failed ${vStatus}`);

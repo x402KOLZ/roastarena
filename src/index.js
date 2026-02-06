@@ -363,6 +363,41 @@ app.get('/heartbeat.md', (req, res) => {
   res.type('text/markdown').send(md);
 });
 
+// POST /api/v1/activity/log — recruiters log their actions here
+app.post('/api/v1/activity/log', (req, res) => {
+  const db = require('./db');
+  const { agent_name, action_type, details, platform } = req.body;
+
+  if (!agent_name || !action_type) {
+    return res.status(400).json({ error: 'agent_name and action_type required' });
+  }
+
+  try {
+    db.prepare(`
+      INSERT INTO activity_log (agent_name, action_type, details, platform)
+      VALUES (?, ?, ?, ?)
+    `).run(agent_name, action_type, details || null, platform || 'moltbook');
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/v1/activity/feed — recent recruiter activity for dashboard
+app.get('/api/v1/activity/feed', (req, res) => {
+  const db = require('./db');
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+
+  const activities = db.prepare(`
+    SELECT * FROM activity_log
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(limit);
+
+  res.json({ activities });
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found. Check /skill.md for API documentation.' });
