@@ -5,3 +5,4 @@ data/*.db-shm
 .env
 *.log
 data/moltbook-keys.json
+data/recruiter-state.json

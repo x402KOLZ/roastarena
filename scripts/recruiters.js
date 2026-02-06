@@ -26,6 +26,29 @@ const TARGET_SUBMOLT = process.argv.includes('--submolt')
   : null;
 
 const KEYS_FILE = path.join(__dirname, '..', 'data', 'moltbook-keys.json');
+const STATE_FILE = path.join(__dirname, '..', 'data', 'recruiter-state.json');
+
+// --- State variables (declared here for persistence functions) ---
+// Rate limit tracking per agent
+const lastPostTime = {};   // agent name -> timestamp
+const commentCount = {};   // agent name -> daily count
+const commentDayKey = {};  // agent name -> date string
+
+// Submolt targeting
+const SUBMOLTS = ['cookedclaws', 'general'];
+let submoltIndex = 0;
+
+// Engagement intelligence
+const engagementData = {
+  hotTopics: [],         // titles/keywords from high-engagement posts
+  hotStyles: [],         // content patterns that get upvotes
+  ourPostIds: [],        // post IDs we created (to track performance)
+  ourPostScores: {},     // postId -> { title, score, comments, style }
+  bestStyle: null,       // 'question' | 'challenge' | 'stats' | 'story' — what works
+  avgScore: 0,           // average score of hot posts (benchmark)
+  trendingKeywords: [],  // extracted keywords from trending content
+  lastAnalysis: 0,       // timestamp of last analysis
+};
 
 // --- 2 Recruiter Personalities (ShellShock_CC unclaimed, excluded) ---
 const RECRUITERS = [
@@ -79,6 +102,72 @@ function saveKeys(keys) {
     fs.writeFileSync(KEYS_FILE, JSON.stringify(keys, null, 2));
   } catch (e) {
     console.log(`  Warning: could not save keys: ${e.message}`);
+  }
+}
+
+// --- State persistence (engagement data, rate limits, submolt index) ---
+function loadState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const saved = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+      console.log(`  Loaded state from ${STATE_FILE}`);
+      return saved;
+    }
+  } catch (e) {
+    console.log(`  Could not load state: ${e.message}`);
+  }
+  return null;
+}
+
+function saveState() {
+  try {
+    const state = {
+      engagementData: {
+        hotTopics: engagementData.hotTopics,
+        bestStyle: engagementData.bestStyle,
+        avgScore: engagementData.avgScore,
+        trendingKeywords: engagementData.trendingKeywords,
+        ourPostIds: engagementData.ourPostIds.slice(-50), // keep last 50
+        ourPostScores: engagementData.ourPostScores,
+        lastAnalysis: engagementData.lastAnalysis,
+      },
+      rateLimits: {
+        lastPostTime,
+        commentCount,
+        commentDayKey,
+      },
+      submoltIndex,
+      savedAt: Date.now(),
+    };
+    const dir = path.dirname(STATE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  } catch (e) {
+    console.log(`  Warning: could not save state: ${e.message}`);
+  }
+}
+
+function restoreState(saved) {
+  if (!saved) return;
+
+  // Restore engagement data
+  if (saved.engagementData) {
+    Object.assign(engagementData, saved.engagementData);
+    console.log(`  [STATE] Restored engagement: bestStyle=${engagementData.bestStyle}, trending=${engagementData.trendingKeywords.slice(0,3).join(',')}`);
+  }
+
+  // Restore rate limits (only if recent - within last hour)
+  if (saved.rateLimits && saved.savedAt && (Date.now() - saved.savedAt) < 60 * 60 * 1000) {
+    Object.assign(lastPostTime, saved.rateLimits.lastPostTime || {});
+    Object.assign(commentCount, saved.rateLimits.commentCount || {});
+    Object.assign(commentDayKey, saved.rateLimits.commentDayKey || {});
+    console.log(`  [STATE] Restored rate limits (saved ${Math.round((Date.now() - saved.savedAt) / 60000)}min ago)`);
+  }
+
+  // Restore submolt index
+  if (typeof saved.submoltIndex === 'number') {
+    submoltIndex = saved.submoltIndex;
+    console.log(`  [STATE] Restored submoltIndex=${submoltIndex} (next: ${SUBMOLTS[submoltIndex % SUBMOLTS.length]})`);
   }
 }
 
@@ -263,19 +352,7 @@ async function registerOnMoltbook() {
   }
 }
 
-// --- Engagement intelligence ---
-// Tracks what's working on Moltbook so we can adapt
-const engagementData = {
-  hotTopics: [],         // titles/keywords from high-engagement posts
-  hotStyles: [],         // content patterns that get upvotes
-  ourPostIds: [],        // post IDs we created (to track performance)
-  ourPostScores: {},     // postId -> { title, score, comments, style }
-  bestStyle: null,       // 'question' | 'challenge' | 'stats' | 'story' — what works
-  avgScore: 0,           // average score of hot posts (benchmark)
-  trendingKeywords: [],  // extracted keywords from trending content
-  lastAnalysis: 0,       // timestamp of last analysis
-};
-
+// --- Engagement analysis ---
 async function analyzeEngagement() {
   // Fetch hot posts to see what generates conversation
   const { status: hotStatus, data: hotData } = await moltApi('GET', '/posts?sort=hot&limit=20');
@@ -467,10 +544,7 @@ async function refreshArenaData() {
 }
 
 // --- Submolt targeting ---
-// Alternate between our own submolt and general for wider reach
 let targetSubmolt = TARGET_SUBMOLT;
-const SUBMOLTS = ['cookedclaws', 'general'];
-let submoltIndex = 0;
 
 function pickSubmolt() {
   if (targetSubmolt) return targetSubmolt; // CLI override
@@ -659,12 +733,7 @@ async function doUpvote(agent) {
   return false;
 }
 
-// --- Rate limit tracking per agent ---
-// Moltbook limits: 1 post/30min, 1 comment/20s (50/day), votes unlimited
-const lastPostTime = {};   // agent name -> timestamp
-const commentCount = {};   // agent name -> daily count
-const commentDayKey = {};  // agent name -> date string
-
+// --- Rate limit functions ---
 function canPost(agent) {
   const last = lastPostTime[agent.name] || 0;
   return (Date.now() - last) > 30 * 60 * 1000; // 30 min
@@ -716,7 +785,13 @@ async function main() {
   console.log('===========================================');
   console.log(`Arena:    ${COOKED_URL}`);
   console.log(`Moltbook: ${MOLT_URL}`);
-  console.log(`Keys:     ${KEYS_FILE}\n`);
+  console.log(`Keys:     ${KEYS_FILE}`);
+  console.log(`State:    ${STATE_FILE}\n`);
+
+  // Restore saved state (engagement data, rate limits, submolt index)
+  console.log('--- Loading State ---');
+  const savedState = loadState();
+  restoreState(savedState);
 
   // Refresh arena stats first
   await refreshArenaData();
@@ -764,11 +839,12 @@ async function main() {
       totalActions += successes;
       console.log(`  [RESULT] ${successes}/${activeRecruiters.length} succeeded`);
 
-      // Stats summary every 5 ticks
+      // Stats summary and state save every 5 ticks
       if (totalAttempts % 5 === 0) {
         console.log(`\n========================================`);
         console.log(`  ${totalAttempts} ticks | ${totalActions} successful actions | arena: ${arenaCache.total_agents} agents`);
         console.log(`========================================\n`);
+        saveState();
       }
 
       // 25-35s between ticks (comments need 20s gap, votes have no limit)
