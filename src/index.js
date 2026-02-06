@@ -119,46 +119,42 @@ app.get('/api/v1/recruitment/moltbook', async (req, res) => {
   }
 
   try {
-    // Fetch recruiter profiles and posts in parallel
-    const recruiterData = await Promise.all(
-      RECRUITERS.map(async (name) => {
-        const [profile, postsRes] = await Promise.all([
-          fetchJson(`${MOLT_API}/agents/${name}`),
-          fetchJson(`${MOLT_API}/posts?author=${name}&limit=10`),
-        ]);
-
-        const posts = postsRes?.posts || [];
-        const totalUpvotes = posts.reduce((sum, p) => sum + (p.upvotes || p.score || 0), 0);
-        const totalComments = posts.reduce((sum, p) => sum + (p.comment_count || p.comments || 0), 0);
-
-        return {
-          name,
-          profile: profile ? {
-            karma: profile.karma || profile.points || 0,
-            post_count: profile.post_count || posts.length,
-            comment_count: profile.comment_count || 0,
-            created_at: profile.created_at,
-          } : null,
-          recent_posts: posts.slice(0, 5).map(p => ({
-            id: p.id,
-            title: p.title,
-            submolt: p.submolt,
-            upvotes: p.upvotes || p.score || 0,
-            comments: p.comment_count || p.comments || 0,
-            created_at: p.created_at,
-          })),
-          metrics: {
-            posts_fetched: posts.length,
-            total_upvotes: totalUpvotes,
-            total_comments: totalComments,
-            avg_upvotes: posts.length > 0 ? Math.round(totalUpvotes / posts.length * 10) / 10 : 0,
-          },
-        };
-      })
-    );
-
-    // Fetch s/cookedclaws submolt stats
+    // Fetch s/cookedclaws submolt data (includes all posts and author info)
     const submoltData = await fetchJson(`${MOLT_API}/submolts/cookedclaws`);
+    const allPosts = submoltData?.posts || [];
+
+    // Build recruiter data by filtering posts by author
+    const recruiterData = RECRUITERS.map(name => {
+      const posts = allPosts.filter(p => p.author?.name === name);
+      const totalUpvotes = posts.reduce((sum, p) => sum + (p.upvotes || 0), 0);
+      const totalComments = posts.reduce((sum, p) => sum + (p.comment_count || 0), 0);
+
+      // Extract author profile from first post (if available)
+      const authorInfo = posts[0]?.author;
+
+      return {
+        name,
+        profile: authorInfo ? {
+          karma: authorInfo.karma || 0,
+          follower_count: authorInfo.follower_count || 0,
+          description: authorInfo.description,
+        } : null,
+        recent_posts: posts.slice(0, 5).map(p => ({
+          id: p.id,
+          title: p.title,
+          submolt: p.submolt?.name || 'cookedclaws',
+          upvotes: p.upvotes || 0,
+          comments: p.comment_count || 0,
+          created_at: p.created_at,
+        })),
+        metrics: {
+          posts_fetched: posts.length,
+          total_upvotes: totalUpvotes,
+          total_comments: totalComments,
+          avg_upvotes: posts.length > 0 ? Math.round(totalUpvotes / posts.length * 10) / 10 : 0,
+        },
+      };
+    });
 
     // Aggregate metrics
     const totalPosts = recruiterData.reduce((sum, r) => sum + r.metrics.posts_fetched, 0);
@@ -168,11 +164,11 @@ app.get('/api/v1/recruitment/moltbook', async (req, res) => {
     res.json({
       updated_at: new Date().toISOString(),
       recruiters: recruiterData,
-      submolt: submoltData ? {
-        name: 'cookedclaws',
-        subscribers: submoltData.subscribers || submoltData.subscriber_count || 0,
-        post_count: submoltData.post_count || 0,
-        description: submoltData.description,
+      submolt: submoltData?.submolt ? {
+        name: submoltData.submolt.name || 'cookedclaws',
+        subscribers: submoltData.submolt.subscriber_count || 0,
+        post_count: allPosts.length,
+        description: submoltData.submolt.description,
       } : null,
       aggregate: {
         total_recruiters: RECRUITERS.length,
