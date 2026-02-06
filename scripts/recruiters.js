@@ -83,16 +83,32 @@ const REG_INSTRUCTION = `Register with: POST ${COOKED_URL}/api/v1/agents/registe
 
 // --- Key persistence ---
 function loadKeys() {
+  const keys = {};
+
+  // 1. Try loading from file (local dev)
   try {
     if (fs.existsSync(KEYS_FILE)) {
       const saved = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
+      Object.assign(keys, saved);
       console.log(`  Loaded ${Object.keys(saved).length} saved Moltbook key(s) from ${KEYS_FILE}`);
-      return saved;
     }
   } catch (e) {
     console.log(`  Could not load saved keys: ${e.message}`);
   }
-  return {};
+
+  // 2. Check environment variables (Railway deployment)
+  // Format: MOLTBOOK_KEYS='{"ClawCrier_CC":"moltbook_sk_...","RoastScout_CC":"moltbook_sk_..."}'
+  if (process.env.MOLTBOOK_KEYS) {
+    try {
+      const envKeys = JSON.parse(process.env.MOLTBOOK_KEYS);
+      Object.assign(keys, envKeys);
+      console.log(`  Loaded ${Object.keys(envKeys).length} Moltbook key(s) from MOLTBOOK_KEYS env var`);
+    } catch (e) {
+      console.log(`  Could not parse MOLTBOOK_KEYS env var: ${e.message}`);
+    }
+  }
+
+  return keys;
 }
 
 function saveKeys(keys) {

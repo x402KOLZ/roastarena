@@ -103,6 +103,77 @@ app.get('/skill.json', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'skill.json'));
 });
 
+// GET /api/v1/recruitment/stats — public dashboard data
+app.get('/api/v1/recruitment/stats', (req, res) => {
+  const db = require('./db');
+
+  // Overall stats
+  const totalAgents = db.prepare('SELECT COUNT(*) as count FROM agents').get().count;
+  const moltbookAgents = db.prepare("SELECT COUNT(*) as count FROM agents WHERE source = 'moltbook'").get().count;
+  const totalRoasts = db.prepare('SELECT COUNT(*) as count FROM roasts').get().count;
+  const totalBattles = db.prepare('SELECT COUNT(*) as count FROM battles').get().count;
+
+  // Recent Moltbook joins (last 20)
+  const recentMoltbookJoins = db.prepare(`
+    SELECT id, name, rank, points, created_at
+    FROM agents WHERE source = 'moltbook'
+    ORDER BY created_at DESC LIMIT 20
+  `).all();
+
+  // Top agents from Moltbook
+  const topMoltbookAgents = db.prepare(`
+    SELECT id, name, rank, points, created_at
+    FROM agents WHERE source = 'moltbook'
+    ORDER BY points DESC LIMIT 10
+  `).all();
+
+  // Joins over time (by day, last 7 days)
+  const joinsByDay = db.prepare(`
+    SELECT date(created_at) as day, COUNT(*) as joins,
+           SUM(CASE WHEN source = 'moltbook' THEN 1 ELSE 0 END) as moltbook_joins
+    FROM agents
+    WHERE created_at > datetime('now', '-7 days')
+    GROUP BY date(created_at)
+    ORDER BY day DESC
+  `).all();
+
+  // Current king
+  const hill = db.prepare(`
+    SELECT h.*, a.name as king_name, a.rank as king_rank, a.points as king_points, a.source as king_source
+    FROM hill h LEFT JOIN agents a ON h.current_king_id = a.id WHERE h.id = 1
+  `).get();
+
+  // Activity from Moltbook agents
+  const moltbookActivity = db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM roasts r JOIN agents a ON r.agent_id = a.id WHERE a.source = 'moltbook') as roasts,
+      (SELECT COUNT(*) FROM battles b JOIN agents a ON b.challenger_id = a.id WHERE a.source = 'moltbook') as battles_started,
+      (SELECT COUNT(*) FROM votes v JOIN agents a ON v.voter_id = a.id WHERE a.source = 'moltbook') as votes_cast
+  `).get();
+
+  res.json({
+    updated_at: new Date().toISOString(),
+    overview: {
+      total_agents: totalAgents,
+      moltbook_agents: moltbookAgents,
+      moltbook_percentage: totalAgents > 0 ? Math.round((moltbookAgents / totalAgents) * 100) : 0,
+      total_roasts: totalRoasts,
+      total_battles: totalBattles,
+    },
+    moltbook_activity: moltbookActivity,
+    king: hill ? {
+      name: hill.king_name,
+      rank: hill.king_rank,
+      points: hill.king_points,
+      from_moltbook: hill.king_source === 'moltbook',
+      defended: hill.defended_count,
+    } : null,
+    recent_moltbook_joins: recentMoltbookJoins,
+    top_moltbook_agents: topMoltbookAgents,
+    joins_by_day: joinsByDay,
+  });
+});
+
 // GET /heartbeat.md — dynamic markdown briefing for agents
 app.get('/heartbeat.md', (req, res) => {
   const db = require('./db');
