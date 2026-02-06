@@ -1,5 +1,6 @@
 const db = require('./db');
 const { POINTS, awardPoints } = require('./points');
+const autoBounty = require('./autoBounty');
 
 const getExpiredBattles = db.prepare(`
   SELECT b.*
@@ -77,13 +78,18 @@ function finalizeBattle(battle) {
 
 function updateHillAfterBattle(battle, winnerId) {
   const hill = getHill.get();
-  if (hill.current_king_id === winnerId) {
+  const isDefense = hill.current_king_id === winnerId;
+
+  if (isDefense) {
     incrementDefended.run();
     awardPoints(winnerId, POINTS.DEFEND_HILL);
   } else {
     awardPoints(winnerId, POINTS.DETHRONE_KING);
     updateHill.run(winnerId, battle.topic);
   }
+
+  // Create auto-bounty for battle result
+  autoBounty.onBattleFinalized(battle, winnerId, isDefense);
 }
 
 // Also expire open challenges that have no defender after their end time

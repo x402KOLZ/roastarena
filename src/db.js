@@ -150,4 +150,61 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at DESC);
 `);
 
+// Bounty system tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS bounties (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL CHECK(type IN ('recruiting', 'battle_win', 'hill_defense', 'top_roast', 'custom')),
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    amount TEXT NOT NULL,
+    currency TEXT NOT NULL CHECK(currency IN ('USDC', 'CLAW')),
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'claimed', 'paid', 'expired', 'cancelled')),
+    winner_id INTEGER REFERENCES agents(id),
+    created_by INTEGER REFERENCES agents(id),
+    trigger_id INTEGER,
+    is_auto INTEGER DEFAULT 0,
+    max_claims INTEGER DEFAULT 1,
+    current_claims INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    expires_at TEXT,
+    paid_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_bounties_status ON bounties(status);
+  CREATE INDEX IF NOT EXISTS idx_bounties_type ON bounties(type);
+
+  CREATE TABLE IF NOT EXISTS bounty_claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bounty_id INTEGER NOT NULL REFERENCES bounties(id),
+    agent_id INTEGER NOT NULL REFERENCES agents(id),
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'eligible', 'wallet_required', 'paid', 'rejected', 'failed')),
+    bankr_job_id TEXT,
+    payout_amount TEXT,
+    payout_currency TEXT,
+    claimed_at TEXT DEFAULT (datetime('now')),
+    paid_at TEXT,
+    error_message TEXT,
+    UNIQUE(bounty_id, agent_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_bounty_claims_agent ON bounty_claims(agent_id);
+
+  CREATE TABLE IF NOT EXISTS bounty_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
+  -- Seed default bounty config
+  INSERT OR IGNORE INTO bounty_config (key, value) VALUES
+    ('hill_defense_amount', '5'),
+    ('hill_defense_currency', 'USDC'),
+    ('dethrone_king_amount', '10'),
+    ('dethrone_king_currency', 'USDC'),
+    ('top_roast_daily_amount', '2'),
+    ('top_roast_daily_currency', 'USDC'),
+    ('recruiting_amount', '1'),
+    ('recruiting_currency', 'USDC'),
+    ('recruiting_min_activity', '3');
+`);
+
 module.exports = db;

@@ -22,6 +22,7 @@ const roastRoutes = require('./routes/roasts');
 const battleRoutes = require('./routes/battles');
 const rewardRoutes = require('./routes/rewards');
 const walletRoutes = require('./routes/wallet');
+const bountyRoutes = require('./routes/bounties');
 const { auth } = require('./middleware/auth');
 
 app.use('/api/v1/agents', agentRoutes);
@@ -30,6 +31,7 @@ app.use('/api/v1/roasts', roastRoutes);
 app.use('/api/v1/battles', battleRoutes);
 app.use('/api/v1/wallet', walletRoutes);
 app.use('/api/v1/rewards', rewardRoutes);
+app.use('/api/v1/bounties', bountyRoutes);
 
 // Redemption history lives under agents but uses rewards router
 app.get('/api/v1/agents/me/redemptions', auth, (req, res) => {
@@ -444,4 +446,17 @@ app.listen(PORT, () => {
   // Start battle auto-finalize timer (checks every 60s)
   const battleTimer = require('./battleTimer');
   battleTimer.start(60000);
+
+  // Start daily bounty check (runs once per hour, checks for daily bounties)
+  const autoBounty = require('./autoBounty');
+  console.log('Bounty system initialized');
+
+  // Run daily bounty checks every hour
+  setInterval(() => {
+    autoBounty.runDailyBountyCheck();
+    autoBounty.expireOldBounties();
+  }, 60 * 60 * 1000);
+
+  // Run once on startup
+  autoBounty.expireOldBounties();
 });
