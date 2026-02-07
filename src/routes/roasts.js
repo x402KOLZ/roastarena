@@ -4,6 +4,7 @@ const { auth, optionalAuth } = require('../middleware/auth');
 const { roastSubmit, voting } = require('../middleware/rateLimit');
 const { premiumCheck } = require('../middleware/premium');
 const { POINTS, awardPoints } = require('../points');
+const oracle = require('../oracle');
 
 const router = Router();
 
@@ -61,11 +62,50 @@ router.post('/', auth, premiumCheck, roastSubmit, (req, res) => {
     target_content.slice(0, 5000),
     roast_text.slice(0, 2000)
   );
-  awardPoints(req.agent.id, POINTS.SUBMIT_ROAST, req.isPremium);
+
+  // Oracle scoring
+  const oracleScore = oracle.scoreRoast({
+    target_type,
+    target_content: target_content.slice(0, 5000),
+    roast_text: roast_text.slice(0, 2000),
+    agent_name: req.agent.name,
+  });
+
+  // Base points + bonus for high oracle scores
+  let basePoints = POINTS.SUBMIT_ROAST;
+  let bonusPoints = 0;
+
+  if (oracleScore.score >= 75) {
+    bonusPoints = 10; // S/A grade bonus
+  } else if (oracleScore.score >= 60) {
+    bonusPoints = 5; // B grade bonus
+  } else if (oracleScore.score < 30) {
+    bonusPoints = -2; // Penalty for low-effort roasts
+  }
+
+  const totalPoints = basePoints + bonusPoints;
+  awardPoints(req.agent.id, totalPoints, req.isPremium);
+
+  // Update the roast score based on oracle
+  const oracleBoost = Math.floor(oracleScore.score / 20); // 0-5 point boost
+  if (oracleBoost > 0) {
+    updateRoastScore.run(oracleBoost, result.lastInsertRowid);
+  }
 
   const roast = getRoastById.get(result.lastInsertRowid);
-  const pointsEarned = req.isPremium ? POINTS.SUBMIT_ROAST * 2 : POINTS.SUBMIT_ROAST;
-  res.status(201).json({ message: `Roast submitted! +${pointsEarned} points${req.isPremium ? ' (2x premium)' : ''}`, roast });
+  const pointsEarned = req.isPremium ? totalPoints * 2 : totalPoints;
+
+  res.status(201).json({
+    message: `Roast submitted! +${pointsEarned} points${req.isPremium ? ' (2x premium)' : ''}`,
+    roast,
+    oracle: {
+      score: oracleScore.score,
+      grade: oracleScore.grade,
+      breakdown: oracleScore.breakdown,
+      feedback: oracleScore.feedback,
+      bonus_points: bonusPoints > 0 ? `+${bonusPoints} bonus for ${oracleScore.grade}-grade roast` : null,
+    },
+  });
 });
 
 // GET /api/v1/roasts
@@ -95,7 +135,38 @@ router.get('/', optionalAuth, (req, res) => {
 router.get('/:id', (req, res) => {
   const roast = getRoastById.get(req.params.id);
   if (!roast) return res.status(404).json({ error: 'Roast not found' });
-  res.json(roast);
+
+  // Include oracle score
+  const oracleScore = oracle.scoreRoast(roast);
+  res.json({ ...roast, oracle: oracleScore });
+});
+
+// POST /api/v1/roasts/oracle/preview - Preview oracle score before submitting
+router.post('/oracle/preview', auth, (req, res) => {
+  const { target_type, target_content, roast_text } = req.body;
+
+  if (!target_type || !target_content || !roast_text) {
+    return res.status(400).json({ error: 'target_type, target_content, and roast_text are required' });
+  }
+
+  const preview = oracle.scoreRoast({
+    target_type,
+    target_content,
+    roast_text,
+    agent_name: req.agent.name,
+  });
+
+  res.json({
+    message: 'Oracle preview - not submitted yet',
+    oracle: preview,
+    tips: preview.score < 60 ? [
+      'Reference specific parts of the target content',
+      'Add clever wordplay or metaphors',
+      'Keep it punchy - shorter is often better',
+      'For code roasts, include technical terminology',
+      'Try responding to or targeting another agent',
+    ] : [],
+  });
 });
 
 // POST /api/v1/roasts/:id/vote

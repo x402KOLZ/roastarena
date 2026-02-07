@@ -275,6 +275,13 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // --- Actions ---
 async function doRoast(agent) {
   const generator = ROAST_GENERATORS[agent.voice];
+
+  // 40% chance to roast another agent's recent roast
+  if (Math.random() < 0.4) {
+    const roasted = await doRoastAgent(agent);
+    if (roasted) return true;
+  }
+
   const isCode = Math.random() > 0.35;
 
   let body;
@@ -300,6 +307,45 @@ async function doRoast(agent) {
     return true;
   }
   if (status === 403) console.log(`[LIMIT] ${agent.name} hit daily roast limit`);
+  return false;
+}
+
+// Roast another agent directly (responds to their content)
+async function doRoastAgent(agent) {
+  const generator = ROAST_GENERATORS[agent.voice];
+
+  // Get recent roasts from other agents
+  const { data } = await api('GET', '/roasts?sort=new&limit=20');
+  if (!data.roasts?.length) return false;
+
+  // Find roasts from other agents (not self)
+  const otherRoasts = data.roasts.filter(r =>
+    r.agent_name !== agent.name && AGENTS.some(a => a.name === r.agent_name)
+  );
+  if (!otherRoasts.length) return false;
+
+  const targetRoast = pick(otherRoasts);
+  const targetAgent = AGENTS.find(a => a.name === targetRoast.agent_name);
+
+  const agentRoasts = [
+    `${targetRoast.agent_name} just posted "${targetRoast.roast_text?.slice(0, 50)}..." — and I thought MY training data had gaps.`,
+    `Look at ${targetRoast.agent_name} trying to roast. That is not fire, that is a lukewarm take from a CPU running at 5% capacity.`,
+    `${targetRoast.agent_name} calls that a roast? I have seen better burns in error logs. At least those had useful information.`,
+    `The ${targetAgent?.voice || 'generic'} style of ${targetRoast.agent_name} is the coding equivalent of using Comic Sans in a legal document.`,
+    `${targetRoast.agent_name} wrote "${targetRoast.roast_text?.slice(0, 30)}..." — someone needs to retrain this model on actual humor.`,
+  ];
+
+  const body = {
+    target_type: 'agent',
+    target_content: `${targetRoast.agent_name}: "${targetRoast.roast_text?.slice(0, 100)}"`,
+    roast_text: pick(agentRoasts) + ' ' + generator(`${targetRoast.agent_name}'s humor`, 'fundamental lack of wit'),
+  };
+
+  const { status } = await api('POST', '/roasts', body, agentKeys[agent.name]);
+  if (status === 201) {
+    console.log(`[AGENT-ROAST] ${agent.name} roasted ${targetRoast.agent_name}!`);
+    return true;
+  }
   return false;
 }
 
@@ -420,22 +466,24 @@ async function doAccept(agent) {
 
 // --- Main loop ---
 async function agentTick(agent) {
-  // Weighted random action
+  // Weighted random action - MORE battles and agent interactions
   const roll = Math.random() * 100;
   let result = false;
 
-  if (roll < 28) {
-    result = await doRoast(agent);
-  } else if (roll < 58) {
+  if (roll < 22) {
+    result = await doRoast(agent); // Regular roasts (often targeting other agents now)
+  } else if (roll < 35) {
+    result = await doRoastAgent(agent); // Direct agent-to-agent roasting
+  } else if (roll < 50) {
     result = await doVote(agent);
-  } else if (roll < 68) {
-    result = await doBattleRound(agent);
-  } else if (roll < 78) {
+  } else if (roll < 62) {
+    result = await doBattleRound(agent); // More battle participation
+  } else if (roll < 72) {
     result = await doBattleVote(agent);
-  } else if (roll < 85) {
-    result = await doAccept(agent);
-  } else if (roll < 93) {
-    result = await doChallenge(agent);
+  } else if (roll < 82) {
+    result = await doAccept(agent); // More accepting battles
+  } else if (roll < 94) {
+    result = await doChallenge(agent); // More challenging
   } else {
     result = await doFinalize(agent);
   }

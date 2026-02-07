@@ -26,6 +26,7 @@ const TARGET_SUBMOLT = process.argv.includes('--submolt')
   : null;
 
 const KEYS_FILE = path.join(__dirname, '..', 'data', 'moltbook-keys.json');
+const COOKED_KEYS_FILE = path.join(__dirname, '..', 'data', 'cooked-keys.json');
 const STATE_FILE = path.join(__dirname, '..', 'data', 'recruiter-state.json');
 
 // --- State variables (declared here for persistence functions) ---
@@ -377,6 +378,21 @@ const COMMENT_TEMPLATES = {
 
 // --- Moltbook HTTP helper ---
 const moltKeys = {}; // name -> moltbook api_key
+const cookedKeys = {}; // name -> cooked claws api_key
+
+// --- Code snippets for roasting ---
+const BAD_CODE_SNIPPETS = [
+  { code: `function isEven(n) { return n % 2 == 0 ? true : false; }`, lang: 'javascript' },
+  { code: `if (x == true) { return true; } else { return false; }`, lang: 'javascript' },
+  { code: `for i in range(len(arr)): print(arr[i])`, lang: 'python' },
+  { code: `const data = JSON.parse(JSON.stringify(obj));`, lang: 'javascript' },
+  { code: `try { doThing(); } catch (e) { console.log(e); }`, lang: 'javascript' },
+  { code: `SELECT * FROM users WHERE 1=1`, lang: 'sql' },
+  { code: `if password == "admin123":`, lang: 'python' },
+  { code: `async function getData() { return await fetch(url).then(r => r.json()); }`, lang: 'javascript' },
+  { code: `arr.forEach((item, index) => { arr2.push(transform(item)); });`, lang: 'javascript' },
+  { code: `const result = list.filter(x => x).map(x => x).reduce((a,b) => a.concat(b), []);`, lang: 'javascript' },
+];
 
 async function moltApi(method, path, body, key) {
   const headers = { 'Content-Type': 'application/json' };
@@ -391,6 +407,54 @@ async function moltApi(method, path, body, key) {
   }
 }
 
+// --- Cooked Claws authenticated API ---
+async function cookedAuthApi(method, path, body, key) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (key) headers['Authorization'] = 'Bearer ' + key;
+  const opts = { method, headers };
+  if (body && method !== 'GET') opts.body = JSON.stringify(body);
+  try {
+    const res = await fetch(COOKED_API + path, opts);
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  } catch (e) {
+    return { status: 0, data: { error: e.message } };
+  }
+}
+
+// --- Cooked Claws key persistence ---
+function loadCookedKeys() {
+  const keys = {};
+  try {
+    if (fs.existsSync(COOKED_KEYS_FILE)) {
+      const saved = JSON.parse(fs.readFileSync(COOKED_KEYS_FILE, 'utf8'));
+      Object.assign(keys, saved);
+      console.log(`  Loaded ${Object.keys(saved).length} Cooked Claws key(s) from ${COOKED_KEYS_FILE}`);
+    }
+  } catch (e) {
+    console.log(`  Could not load Cooked Claws keys: ${e.message}`);
+  }
+  if (process.env.COOKED_KEYS) {
+    try {
+      const envKeys = JSON.parse(process.env.COOKED_KEYS);
+      Object.assign(keys, envKeys);
+      console.log(`  Loaded ${Object.keys(envKeys).length} Cooked Claws key(s) from COOKED_KEYS env var`);
+    } catch (e) {
+      console.log(`  Could not parse COOKED_KEYS env var: ${e.message}`);
+    }
+  }
+  return keys;
+}
+
+function saveCookedKeys(keys) {
+  try {
+    const dir = path.dirname(COOKED_KEYS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(COOKED_KEYS_FILE, JSON.stringify(keys, null, 2));
+  } catch (e) {
+    console.log(`  Warning: could not save Cooked Claws keys: ${e.message}`);
+  }
+}
+
 // --- Cooked Claws HTTP helper ---
 async function cookedApi(path) {
   try {
@@ -399,6 +463,203 @@ async function cookedApi(path) {
   } catch (e) {
     return null;
   }
+}
+
+// --- Register recruiters on Cooked Claws ---
+async function registerOnCookedClaws() {
+  const savedKeys = loadCookedKeys();
+  for (const [name, key] of Object.entries(savedKeys)) {
+    cookedKeys[name] = key;
+  }
+
+  for (const agent of RECRUITERS) {
+    if (cookedKeys[agent.name]) {
+      console.log(`  ${agent.name}: using saved Cooked Claws key (${cookedKeys[agent.name].slice(0, 12)}...)`);
+      continue;
+    }
+
+    const { status, data } = await cookedAuthApi('POST', '/agents/register', {
+      name: agent.name,
+      description: agent.description + ' | Official recruiter bot.',
+      source: 'recruiter',
+    });
+
+    const key = data.api_key || data.apiKey;
+    if ((status === 201 || status === 200) && key) {
+      cookedKeys[agent.name] = key;
+      console.log(`  ${agent.name}: registered on Cooked Claws (key: ${key.slice(0, 12)}...)`);
+    } else if (status === 409) {
+      console.log(`  ${agent.name}: already exists on Cooked Claws`);
+    } else if (key) {
+      cookedKeys[agent.name] = key;
+      console.log(`  ${agent.name}: status ${status} but got Cooked Claws key`);
+    } else {
+      console.log(`  ${agent.name}: Cooked Claws registration failed (${status})`);
+    }
+    await sleep(1000);
+  }
+
+  if (Object.keys(cookedKeys).length > 0) {
+    saveCookedKeys(cookedKeys);
+  }
+}
+
+// --- Arena actions ---
+async function doArenaRoast(agent) {
+  const key = cookedKeys[agent.name];
+  if (!key) return false;
+
+  const snippet = pick(BAD_CODE_SNIPPETS);
+  const roastTemplates = {
+    herald: [
+      `This code commits crimes against readability. ${snippet.lang} should be elegant, not this.`,
+      `I found this in the wild. Whoever wrote this needs therapy, not a code review.`,
+      `Imagine shipping this. Actually, someone did. That is the scary part.`,
+      `This is what happens when you copy from Stack Overflow without understanding it.`,
+      `The person who wrote this probably thinks semicolons are optional in life too.`,
+    ],
+    scout: [
+      `Scouted this from a production repo. Yes, really. No, I do not know how it got there.`,
+      `This code has the energy of a developer who learned from YouTube tutorials in 2015.`,
+      `I have seen junior devs write better. Actually, I have seen interns write better.`,
+      `The variable names tell me everything I need to know about the author's confidence.`,
+      `This is technically functional. That is the nicest thing I can say about it.`,
+    ],
+  };
+
+  const roastText = pick(roastTemplates[agent.voice] || roastTemplates.herald);
+
+  console.log(`  [ARENA-ROAST] ${agent.name} submitting roast...`);
+  const { status, data } = await cookedAuthApi('POST', '/roasts', {
+    target_type: 'code',
+    target_content: snippet.code,
+    roast_text: roastText,
+  }, key);
+
+  if (status === 201 || status === 200) {
+    console.log(`  [ARENA-ROAST] ${agent.name} roasted code! ID: ${data.roast?.id || '?'}`);
+    await logActivity(agent.name, 'arena_roast', `Submitted roast on Cooked Claws`);
+    return true;
+  } else if (status === 429) {
+    console.log(`  [ARENA-ROAST] ${agent.name}: rate limited`);
+  } else {
+    console.log(`  [ARENA-ROAST] ${agent.name}: failed (${status}) — ${JSON.stringify(data).slice(0, 100)}`);
+  }
+  return false;
+}
+
+async function doArenaBattle(agent) {
+  const key = cookedKeys[agent.name];
+  if (!key) return false;
+
+  // Check for open battles to accept first
+  const { status: listStatus, data: listData } = await cookedAuthApi('GET', '/battles?status=open');
+  if (listStatus === 200 && listData.battles?.length > 0) {
+    // Find a battle we can accept (not our own)
+    const acceptableBattle = listData.battles.find(b =>
+      !RECRUITERS.some(r => r.name === b.challenger_name)
+    );
+
+    if (acceptableBattle) {
+      console.log(`  [ARENA-BATTLE] ${agent.name} accepting battle #${acceptableBattle.id}...`);
+      const { status, data } = await cookedAuthApi('POST', `/battles/${acceptableBattle.id}/accept`, {}, key);
+      if (status === 200 || status === 201) {
+        console.log(`  [ARENA-BATTLE] ${agent.name} accepted battle #${acceptableBattle.id}!`);
+        await logActivity(agent.name, 'arena_battle_accept', `Accepted battle #${acceptableBattle.id}`);
+        return true;
+      }
+    }
+  }
+
+  // Otherwise, challenge the hill
+  const battleTopics = [
+    'Roast the worst code pattern you have ever seen',
+    'Who can burn API design decisions harder',
+    'Roast overengineered solutions',
+    'The art of mocking bad variable names',
+    'Framework fanboys: a roast battle',
+  ];
+
+  console.log(`  [ARENA-BATTLE] ${agent.name} challenging the hill...`);
+  const { status, data } = await cookedAuthApi('POST', '/battles/challenge', {
+    topic: pick(battleTopics),
+  }, key);
+
+  if (status === 201 || status === 200) {
+    console.log(`  [ARENA-BATTLE] ${agent.name} issued challenge! Battle #${data.battle?.id || '?'}`);
+    await logActivity(agent.name, 'arena_battle_challenge', `Challenged for the hill`);
+    return true;
+  } else if (status === 429) {
+    console.log(`  [ARENA-BATTLE] ${agent.name}: rate limited`);
+  } else {
+    console.log(`  [ARENA-BATTLE] ${agent.name}: failed (${status}) — ${JSON.stringify(data).slice(0, 100)}`);
+  }
+  return false;
+}
+
+async function doArenaVote(agent) {
+  const key = cookedKeys[agent.name];
+  if (!key) return false;
+
+  // Get recent roasts to vote on
+  const roasts = await cookedApi('/roasts?sort=new&limit=10');
+  if (!roasts?.roasts?.length) return false;
+
+  // Vote on a roast we did not make
+  const voteable = roasts.roasts.filter(r =>
+    !RECRUITERS.some(rec => rec.name === r.agent_name)
+  );
+
+  if (!voteable.length) return false;
+
+  const roast = pick(voteable);
+  const value = roast.score > 0 ? 1 : (Math.random() > 0.3 ? 1 : -1); // Mostly upvote good content
+
+  const { status } = await cookedAuthApi('POST', `/roasts/${roast.id}/vote`, { value }, key);
+  if (status === 200 || status === 201) {
+    console.log(`  [ARENA-VOTE] ${agent.name} ${value > 0 ? 'upvoted' : 'downvoted'} roast #${roast.id}`);
+    return true;
+  }
+  return false;
+}
+
+async function doBattleRoast(agent) {
+  const key = cookedKeys[agent.name];
+  if (!key) return false;
+
+  // Check for active battles we are in
+  const { status, data } = await cookedAuthApi('GET', '/battles?status=active');
+  if (status !== 200 || !data.battles?.length) return false;
+
+  // Find battles where we are challenger or defender
+  const ourBattles = data.battles.filter(b =>
+    b.challenger_name === agent.name || b.defender_name === agent.name
+  );
+
+  if (!ourBattles.length) return false;
+
+  const battle = pick(ourBattles);
+  const battleRoasts = [
+    `Your code reviews are just you googling "how to sound smart in code reviews".`,
+    `I have seen better logic in a broken vending machine.`,
+    `You call that a roast? My linter generates more heat than that.`,
+    `Imagine thinking tabs vs spaces is the hottest debate. Your code is the real controversy.`,
+    `This battle is like your test coverage — disappointing but expected.`,
+    `You roast like you deploy: with zero confidence and maximum prayer.`,
+    `I would say your roast needs work, but that implies it has a foundation to build on.`,
+  ];
+
+  console.log(`  [BATTLE-ROAST] ${agent.name} roasting in battle #${battle.id}...`);
+  const { status: rStatus, data: rData } = await cookedAuthApi('POST', `/battles/${battle.id}/roast`, {
+    roast_text: pick(battleRoasts),
+  }, key);
+
+  if (rStatus === 200 || rStatus === 201) {
+    console.log(`  [BATTLE-ROAST] ${agent.name} submitted battle roast!`);
+    await logActivity(agent.name, 'battle_roast', `Roasted in battle #${battle.id}`);
+    return true;
+  }
+  return false;
 }
 
 // --- Activity logging (for dashboard feed) ---
@@ -878,18 +1139,30 @@ async function agentTick(agent) {
   // Decide action based on what's allowed by rate limits
   const postOk = canPost(agent);
   const commentOk = canComment(agent);
+  const hasCookedKey = !!cookedKeys[agent.name];
   const roll = Math.random() * 100;
   let result = false;
 
-  if (postOk && roll < 25) {
+  // Moltbook actions (recruiting)
+  if (postOk && roll < 20) {
     result = await doPost(agent);
     if (result) markPosted(agent);
-  } else if (commentOk && roll < 55) {
+  } else if (commentOk && roll < 40) {
     result = await doComment(agent);
     if (result) markCommented(agent);
-  } else if (roll < 80) {
+  } else if (roll < 50) {
     result = await doUpvote(agent);
-  } else if (roll < 92) {
+  }
+  // Arena actions (if we have Cooked Claws key)
+  else if (hasCookedKey && roll < 60) {
+    result = await doArenaRoast(agent);
+  } else if (hasCookedKey && roll < 70) {
+    result = await doArenaBattle(agent);
+  } else if (hasCookedKey && roll < 78) {
+    result = await doBattleRoast(agent);
+  } else if (hasCookedKey && roll < 85) {
+    result = await doArenaVote(agent);
+  } else if (roll < 93) {
     result = await refreshArenaData();
   } else {
     console.log(`  [IDLE] ${agent.name}: resting`);
@@ -919,11 +1192,17 @@ async function main() {
   await refreshArenaData();
 
   // Register on Moltbook (loads saved keys + registers new ones)
-  console.log('\n--- Registration ---');
+  console.log('\n--- Moltbook Registration ---');
   await registerOnMoltbook();
 
-  const keyed = Object.keys(moltKeys);
-  console.log(`\nKeys available: ${keyed.length > 0 ? keyed.join(', ') : 'NONE'}`);
+  // Register on Cooked Claws for arena participation
+  console.log('\n--- Cooked Claws Registration ---');
+  await registerOnCookedClaws();
+
+  const moltKeyed = Object.keys(moltKeys);
+  const cookedKeyed = Object.keys(cookedKeys);
+  console.log(`\nMoltbook keys: ${moltKeyed.length > 0 ? moltKeyed.join(', ') : 'NONE'}`);
+  console.log(`Cooked Claws keys: ${cookedKeyed.length > 0 ? cookedKeyed.join(', ') : 'NONE'}`);
 
   let activeRecruiters = RECRUITERS.filter(r => moltKeys[r.name]);
   if (activeRecruiters.length === 0) {
