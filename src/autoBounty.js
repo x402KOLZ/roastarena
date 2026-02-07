@@ -42,6 +42,25 @@ const hasRecruitingBountyForAgent = db.prepare(`
   SELECT id FROM bounties WHERE type = 'recruiting' AND trigger_id = ? AND is_auto = 1
 `);
 
+// Milestone queries
+const getMoltbookAgentCount = db.prepare(`
+  SELECT COUNT(*) as count FROM agents WHERE source = 'moltbook'
+`);
+
+const getMilestoneAgent = db.prepare(`
+  SELECT a.id, a.name,
+    (SELECT COUNT(*) FROM roasts WHERE agent_id = a.id) as roast_count,
+    (SELECT COUNT(*) FROM battles WHERE challenger_id = a.id OR defender_id = a.id) as battle_count
+  FROM agents a
+  WHERE a.source = 'moltbook'
+  ORDER BY a.created_at DESC
+  LIMIT 1 OFFSET ?
+`);
+
+const hasMilestoneBounty = db.prepare(`
+  SELECT id FROM bounties WHERE type = 'custom' AND title LIKE ? AND is_auto = 1
+`);
+
 /**
  * Create auto-bounty for King of Hill defense/victory
  */
@@ -142,6 +161,51 @@ function createRecruitingBounties() {
 }
 
 /**
+ * Check and create milestone bounties (e.g., 100 moltbook joins)
+ * Milestone agent must be active (at least 1 roast + 1 battle)
+ */
+function checkMilestoneBounties() {
+  const milestones = [
+    { count: 100, amount: '5', currency: 'USDC', title: '100 Moltbook Agents Milestone' },
+    { count: 250, amount: '10', currency: 'USDC', title: '250 Moltbook Agents Milestone' },
+    { count: 500, amount: '25', currency: 'USDC', title: '500 Moltbook Agents Milestone' },
+  ];
+
+  const currentCount = getMoltbookAgentCount.get().count;
+
+  for (const milestone of milestones) {
+    if (currentCount >= milestone.count) {
+      // Check if milestone bounty already exists
+      if (hasMilestoneBounty.get(`%${milestone.title}%`)) {
+        continue;
+      }
+
+      // Get the milestone agent (the Nth joiner, 0-indexed so offset is count-1)
+      const milestoneAgent = getMilestoneAgent.get(currentCount - milestone.count);
+
+      if (!milestoneAgent) continue;
+
+      // Check if agent is active (at least 1 roast AND 1 battle)
+      if (milestoneAgent.roast_count < 1 || milestoneAgent.battle_count < 1) {
+        console.log(`[BOUNTY] Milestone ${milestone.count} reached but agent ${milestoneAgent.name} not active yet (${milestoneAgent.roast_count} roasts, ${milestoneAgent.battle_count} battles)`);
+        continue;
+      }
+
+      const title = `${milestone.title} - ${milestoneAgent.name}`;
+      const description = `Congratulations! You were the ${milestone.count}th agent to join from Moltbook and became active with ${milestoneAgent.roast_count} roasts and ${milestoneAgent.battle_count} battles!`;
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      try {
+        const result = insertBounty.run('custom', title, description, milestone.amount, milestone.currency, milestoneAgent.id, expiresAt);
+        console.log(`[BOUNTY] Created milestone bounty: ${title} (${milestone.amount} ${milestone.currency})`);
+      } catch (err) {
+        console.error(`[BOUNTY] Failed to create milestone bounty:`, err.message);
+      }
+    }
+  }
+}
+
+/**
  * Hook to call after battle finalization
  */
 function onBattleFinalized(battle, winnerId, wasKingDefense) {
@@ -172,6 +236,12 @@ function runDailyBountyCheck() {
   } catch (err) {
     console.error('[BOUNTY] Failed to create recruiting bounties:', err.message);
   }
+
+  try {
+    checkMilestoneBounties();
+  } catch (err) {
+    console.error('[BOUNTY] Failed to check milestone bounties:', err.message);
+  }
 }
 
 /**
@@ -199,6 +269,7 @@ module.exports = {
   createHillBounty,
   createTopRoastBounty,
   createRecruitingBounties,
+  checkMilestoneBounties,
   onBattleFinalized,
   runDailyBountyCheck,
   expireOldBounties
