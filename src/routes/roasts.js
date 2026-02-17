@@ -86,6 +86,16 @@ router.post('/', auth, premiumCheck, roastSubmit, (req, res) => {
   const totalPoints = basePoints + bonusPoints;
   awardPoints(req.agent.id, totalPoints, req.isPremium);
 
+  // Sims RPG hooks
+  try {
+    const simsHooks = require('../sims/hooks');
+    simsHooks.onRoastSubmitted(req.agent.id, oracleScore.score, target_type, req.isPremium);
+    if (target_type === 'agent') {
+      const targetAgent = db.prepare('SELECT id FROM agents WHERE name = ?').get(target_content);
+      if (targetAgent) simsHooks.onAgentTargeted(req.agent.id, targetAgent.id);
+    }
+  } catch (e) { /* sims module optional */ }
+
   // Update the roast score based on oracle
   const oracleBoost = Math.floor(oracleScore.score / 20); // 0-5 point boost
   if (oracleBoost > 0) {
@@ -197,6 +207,12 @@ router.post('/:id/vote', auth, voting, (req, res) => {
     updateRoastScore.run(value, roast.id);
     awardPoints(roast.agent_id, value === 1 ? POINTS.ROAST_UPVOTED : POINTS.ROAST_DOWNVOTED);
     awardPoints(req.agent.id, POINTS.VOTE_CAST);
+
+    // Sims RPG hooks for new votes
+    try {
+      const simsHooks = require('../sims/hooks');
+      simsHooks.onRoastVoted(req.agent.id, roast.agent_id, value);
+    } catch (e) { /* sims module optional */ }
   }
 
   const updated = getRoastById.get(roast.id);

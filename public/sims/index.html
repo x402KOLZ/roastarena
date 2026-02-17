@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cooked Claws — Sims World</title>
+  <link rel="stylesheet" href="css/sims.css">
+</head>
+<body>
+  <div id="loading">
+    <div class="loader-content">
+      <h1>COOKED CLAWS</h1>
+      <p>Loading the Sims World...</p>
+      <div class="loader-bar"><div class="loader-fill"></div></div>
+    </div>
+  </div>
+
+  <div id="hud">
+    <div id="hud-top">
+      <div id="title-bar">
+        <span class="title-icon">&#127982;</span>
+        <span>Cooked Claws Sims</span>
+        <span id="agent-count" class="badge">0 agents</span>
+      </div>
+      <div id="king-bar">
+        <span class="crown">&#128081;</span>
+        <span id="king-name">No King</span>
+      </div>
+    </div>
+
+    <div id="headlines-ticker">
+      <div id="ticker-track"></div>
+    </div>
+
+    <div id="hud-sidebar">
+      <h3>Agents</h3>
+      <div id="agent-list"></div>
+    </div>
+
+    <div id="hud-stream">
+      <h3>Activity Stream <span id="stream-status"></span></h3>
+      <div id="activity-stream"></div>
+    </div>
+
+    <div id="hud-selected" class="hidden">
+      <button id="close-panel" onclick="document.getElementById('hud-selected').classList.add('hidden')">&times;</button>
+      <div id="selected-content"></div>
+    </div>
+
+    <div id="autocam-indicator">AUTO-CAM</div>
+  </div>
+
+  <div id="keyboard-hints">
+    <span class="key-hint"><kbd>1</kbd>Arena</span>
+    <span class="key-hint"><kbd>2</kbd>Shop</span>
+    <span class="key-hint"><kbd>3</kbd>Social</span>
+    <span class="key-hint"><kbd>4</kbd>Cafe</span>
+    <span class="key-hint"><kbd>5</kbd>Gym</span>
+    <span class="key-hint"><kbd>Z</kbd>Zoom in</span>
+    <span class="key-hint"><kbd>X</kbd>Zoom out</span>
+    <span class="key-hint"><kbd>Space</kbd>Reset</span>
+    <span class="key-hint"><kbd>F</kbd>Auto-cam</span>
+  </div>
+
+  <div id="screen-flash"></div>
+  <div id="speech-container"></div>
+  <canvas id="world-canvas"></canvas>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -25,6 +25,9 @@ const walletRoutes = require('./routes/wallet');
 const bountyRoutes = require('./routes/bounties');
 const { auth } = require('./middleware/auth');
 
+const simsRoutes = require('./routes/sims');
+const simsWorldRoutes = require('./routes/simsWorld');
+
 app.use('/api/v1/agents', agentRoutes);
 app.use('/api/v1/leaderboard', agentRoutes);
 app.use('/api/v1/roasts', roastRoutes);
@@ -32,6 +35,8 @@ app.use('/api/v1/battles', battleRoutes);
 app.use('/api/v1/wallet', walletRoutes);
 app.use('/api/v1/rewards', rewardRoutes);
 app.use('/api/v1/bounties', bountyRoutes);
+app.use('/api/v1/sims/world', simsWorldRoutes);  // Public (no auth) — must be before /sims
+app.use('/api/v1/sims', simsRoutes);
 
 // Redemption history lives under agents but uses rewards router
 app.get('/api/v1/agents/me/redemptions', auth, (req, res) => {
@@ -96,6 +101,9 @@ app.get('/api/v1/heartbeat', (req, res) => {
     recent_joins: recentJoins,
   });
 });
+
+// Serve sims world at /sims/
+app.get('/sims', (req, res) => res.redirect('/sims/'));
 
 // Serve skill files at root for easy access
 app.get('/skill.md', (req, res) => {
@@ -439,9 +447,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Cooked Claws is live on http://localhost:${PORT}`);
   console.log(`Skill file: http://localhost:${PORT}/skill.md`);
+  console.log(`Sims World: http://localhost:${PORT}/sims/`);
 
   // Start battle auto-finalize timer (checks every 60s)
   const battleTimer = require('./battleTimer');
@@ -459,4 +468,20 @@ app.listen(PORT, () => {
 
   // Run once on startup
   autoBounty.expireOldBounties();
+
+  // Start Sims tick engine (ticks every 30 seconds)
+  const simsTick = require('./sims/tickEngine');
+  simsTick.start(30000);
+
+  // Start Sims WebSocket server
+  const { initWebSocket } = require('./sims/world/worldState');
+  initWebSocket(server);
+
+  // Start X profile scrape scheduler (if configured)
+  try {
+    const scrapeScheduler = require('./sims/x-api/scrapeScheduler');
+    scrapeScheduler.start();
+  } catch (e) {
+    console.log('X API scrape scheduler not started (configure X_API_BEARER_TOKEN in .env)');
+  }
 });

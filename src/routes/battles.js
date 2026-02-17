@@ -271,7 +271,8 @@ router.post('/:id/finalize', auth, (req, res) => {
   const hill = getHill.get();
 
   // Update hill
-  if (hill.current_king_id === winnerId) {
+  const isDefense = hill.current_king_id === winnerId;
+  if (isDefense) {
     // King defended
     incrementDefended.run();
     awardPoints(winnerId, POINTS.DEFEND_HILL);
@@ -280,6 +281,17 @@ router.post('/:id/finalize', auth, (req, res) => {
     awardPoints(winnerId, POINTS.DETHRONE_KING);
     updateHill.run(winnerId, battle.topic, 0);
   }
+
+  // Sims RPG hooks
+  try {
+    const simsHooks = require('../sims/hooks');
+    simsHooks.onBattleFinalized(winnerId, loserId, battle);
+    if (isDefense) {
+      simsHooks.onHillDefended(winnerId);
+    } else {
+      simsHooks.onKingDethroned(winnerId);
+    }
+  } catch (e) { /* sims module optional */ }
 
   const updatedHill = getHill.get();
   const updatedBattle = getBattleById.get(battle.id);

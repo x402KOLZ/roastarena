@@ -248,6 +248,12 @@ router.post('/:id/claim', auth, async (req, res) => {
     // Record in payments table
     insertPayment.run(req.agent.id, bounty.amount, bounty.currency, 'payout', jobId, 'completed');
 
+    // Sims RPG hooks
+    try {
+      const simsHooks = require('../sims/hooks');
+      simsHooks.onBountyClaimed(req.agent.id, bounty.amount, bounty.currency);
+    } catch (e) { /* sims module optional */ }
+
     res.json({
       message: `Bounty claimed! ${bounty.amount} ${bounty.currency} sent to your wallet.`,
       claim_id: claimId,

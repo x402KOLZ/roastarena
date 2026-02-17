@@ -208,3 +208,6 @@ db.exec(`
 `);
 
 module.exports = db;
+
+// Load Sims RPG schema (after db export so sims/schema.js can require('../db'))
+require('./sims/schema');

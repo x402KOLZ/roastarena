@@ -16,9 +16,11 @@
   "license": "MIT",
   "dependencies": {
     "better-sqlite3": "^12.6.2",
+    "cheerio": "^1.2.0",
     "clanker-sdk": "^4.2.10",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.2.1"
+    "express-rate-limit": "^8.2.1",
+    "ws": "^8.19.0"
   }
 }
