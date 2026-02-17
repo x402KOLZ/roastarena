@@ -6,3 +6,5 @@ data/*.db-shm
 *.log
 data/moltbook-keys.json
 data/recruiter-state.json
+nul
+.server-pid

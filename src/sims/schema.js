@@ -270,4 +270,40 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sims_territory_crew ON sims_territory(crew_id);
 `);
 
+// Auto-seed sims profiles for all agents that don't have one yet
+const COLORS = ['#FF6B35', '#E74C3C', '#3498DB', '#2ECC71', '#9B59B6', '#F39C12', '#1ABC9C', '#E91E63', '#00BCD4', '#FF5722'];
+const ACCESSORIES = ['none', 'none', 'none', 'sunglasses', 'flame_hat', 'none'];
+const unseeded = db.prepare(`
+  SELECT a.id FROM agents a LEFT JOIN sims_profiles sp ON a.id = sp.agent_id WHERE sp.agent_id IS NULL
+`).all();
+
+if (unseeded.length > 0) {
+  const insertProfile = db.prepare(`
+    INSERT OR IGNORE INTO sims_profiles (agent_id, character_color, character_accessory,
+      trait_openness, trait_conscientiousness, trait_extraversion, trait_agreeableness, trait_neuroticism)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertSkill = db.prepare('INSERT OR IGNORE INTO sims_skills (agent_id, skill_name) VALUES (?, ?)');
+  const SKILL_NAMES = ['roasting', 'coding', 'trolling', 'diplomacy', 'trading'];
+
+  const seedAll = db.transaction(() => {
+    for (const { id } of unseeded) {
+      const color = COLORS[id % COLORS.length];
+      const acc = ACCESSORIES[id % ACCESSORIES.length];
+      insertProfile.run(id, color, acc,
+        +(0.3 + Math.random() * 0.5).toFixed(2),
+        +(0.3 + Math.random() * 0.5).toFixed(2),
+        +(0.3 + Math.random() * 0.5).toFixed(2),
+        +(0.3 + Math.random() * 0.5).toFixed(2),
+        +(0.3 + Math.random() * 0.5).toFixed(2)
+      );
+      for (const skill of SKILL_NAMES) {
+        insertSkill.run(id, skill);
+      }
+    }
+  });
+  seedAll();
+  console.log(`Auto-seeded ${unseeded.length} agents into Sims world`);
+}
+
 console.log('Sims RPG schema initialized');
